@@ -6,9 +6,9 @@ class Config:
     BOT_TOKEN = environ.get("BOT_TOKEN", "8101859818:AAGHWB3ux2awbTxp9EhUWgrNL3A0QKChXMk") 
     BOT_SESSION = environ.get("BOT_SESSION", "forward-bot") 
     DATABASE_URI = environ.get("DATABASE", "mongodb+srv://ftm:ftm@cluster0.9a4gw2t.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-    DATABASE_NAME = environ.get("DATABASE_NAME", "forward-bot")
+    DATABASE_NAME = environ.get("DATABASE_NAME", "forward-botzx")
     OWNER_ID = [int(id) for id in environ.get("OWNER_ID", '7744665378').split()]
-    ADMIN_ID = [int(id) for id in environ.get("ADMIN_ID", '').split() if id.strip()]
+    ADMIN_ID = [int(id) for id in environ.get("ADMIN_ID", '7966880099').split() if id.strip()]
     LOG_CHANNEL_ID = int(environ.get("LOG_CHANNEL_ID", "-1003003594014"))
     
     # Updated channel and group URLs
@@ -17,8 +17,8 @@ class Config:
     # Note: Use actual channel usernames instead of hardcoded IDs for better reliability
     UPDATE_CHANNEL_USERNAME = "ftmbotzx"  # Channel username without @
     SUPPORT_GROUP_USERNAME = "ftmbotzx_support"  # Group username without @
-    UPDATE_CHANNEL_ID = int(environ.get("UPDATE_CHANNEL_ID", "-1002346789012"))  # Update channel ID for @ftmbotzx  
-    SUPPORT_GROUP_ID = int(environ.get("SUPPORT_GROUP_ID", "-1002345678901"))   # Support group ID for @ftmbotzx_support
+    UPDATE_CHANNEL_ID = int(environ.get("UPDATE_CHANNEL_ID", "-1002282331890"))  # Update channel ID for @ftmbotzx  
+    SUPPORT_GROUP_ID = int(environ.get("SUPPORT_GROUP_ID", "-1002087228619")   # Support group ID for @ftmbotzx_support
     
     # Three-tier pricing structure
     PLAN_PRICING = {
