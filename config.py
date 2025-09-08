@@ -18,7 +18,7 @@ class Config:
     UPDATE_CHANNEL_USERNAME = "ftmbotzx"  # Channel username without @
     SUPPORT_GROUP_USERNAME = "ftmbotzx_support"  # Group username without @
     UPDATE_CHANNEL_ID = int(environ.get("UPDATE_CHANNEL_ID", "-1002282331890"))  # Update channel ID for @ftmbotzx  
-    SUPPORT_GROUP_ID = int(environ.get("SUPPORT_GROUP_ID", "-1002087228619")   # Support group ID for @ftmbotzx_support
+    SUPPORT_GROUP_ID = int(environ.get("SUPPORT_GROUP_ID", "-1002087228619"))   # Support group ID for @ftmbotzx_support
     
     # Three-tier pricing structure
     PLAN_PRICING = {
