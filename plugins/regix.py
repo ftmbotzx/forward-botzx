@@ -22,6 +22,63 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 TEXT = Translation.TEXT
 
+def safe_decode_caption(caption_data):
+    """
+    Safely decode caption data that might be in various encodings including UTF-16-LE.
+    
+    Args:
+        caption_data: The caption data from Pyrogram (could be string, bytes, or None)
+        
+    Returns:
+        str: Properly decoded UTF-8 string, or empty string if decoding fails
+    """
+    if not caption_data:
+        return ""
+    
+    # If it's already a string, ensure it's clean UTF-8
+    if isinstance(caption_data, str):
+        try:
+            # Encode and decode to ensure clean UTF-8
+            return caption_data.encode('utf-8', errors='ignore').decode('utf-8')
+        except Exception:
+            return ""
+    
+    # If it's bytes, try multiple encoding methods
+    if isinstance(caption_data, bytes):
+        # List of encodings to try, in order of preference
+        encodings_to_try = [
+            'utf-8',
+            'utf-16-le',  # Handle the specific UTF-16-LE encoding issue
+            'utf-16-be',
+            'utf-16',
+            'latin-1',
+            'cp1252'
+        ]
+        
+        for encoding in encodings_to_try:
+            try:
+                decoded = caption_data.decode(encoding, errors='strict')
+                # Additional validation: ensure the decoded string is reasonable
+                if decoded and len(decoded) > 0:
+                    # Clean up any potential null bytes or control characters
+                    cleaned = decoded.replace('\x00', '').strip()
+                    if cleaned:
+                        return cleaned
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        
+        # If all encodings fail, try with error handling
+        try:
+            return caption_data.decode('utf-8', errors='replace').replace('\ufffd', '').strip()
+        except Exception:
+            return ""
+    
+    # Fallback for any other type
+    try:
+        return str(caption_data).encode('utf-8', errors='ignore').decode('utf-8')
+    except Exception:
+        return ""
+
 @Client.on_callback_query(filters.regex(r'^start_public'))
 async def pub_(bot, message):
     user = message.from_user.id
@@ -236,8 +293,8 @@ async def pub_(bot, message):
                            message_content = custom_caption(message, caption)
                            print(f"Message {message.id}: Using custom caption = '{message_content[:50] if message_content else None}...'")
                        else:
-                           # No custom caption set, use original caption unchanged
-                           message_content = message.caption
+                           # No custom caption set, use original caption unchanged with safe decoding
+                           message_content = safe_decode_caption(message.caption)
                            print(f"Message {message.id}: Using original caption = '{message_content[:50] if message_content else None}...'")
                    
                    # For media messages without text content, we don't need to validate content is not empty
@@ -327,22 +384,8 @@ async def copy(bot, msg, m, sts):
                # No custom caption set, use original caption unchanged
                caption = original_caption
            
-           # Handle potential encoding issues in caption
-           if caption:
-              try:
-                 # Fix UTF-16-LE encoding issue by properly handling the caption
-                 if isinstance(caption, bytes):
-                    # If caption is bytes, decode it properly
-                    try:
-                       caption = caption.decode('utf-8', errors='ignore')
-                    except:
-                       caption = caption.decode('utf-8', errors='replace')
-                 else:
-                    # If caption is string, ensure it's clean UTF-8
-                    caption = str(caption).encode('utf-8', errors='ignore').decode('utf-8')
-              except Exception as enc_error:
-                 print(f"Encoding error in caption: {enc_error}")
-                 caption = original_caption or "Caption encoding error"
+           # Handle potential encoding issues in caption using the robust decoder
+           caption = safe_decode_caption(caption)
            
            # Check if FTM mode is enabled
            if msg.get('ftm_mode', False):
@@ -843,39 +886,20 @@ async def send(bot, user, text):
 
 def custom_caption(message, caption):
     if message.caption:
-       try:
-          # Handle potential encoding issues - fix UTF-16-LE issue
-          if isinstance(message.caption, bytes):
-             try:
-                old_caption = message.caption.decode('utf-8', errors='ignore')
-             except:
-                old_caption = message.caption.decode('utf-8', errors='replace')
-          else:
-             old_caption = str(message.caption).encode('utf-8', errors='ignore').decode('utf-8')
-          old_caption = html.escape(old_caption)
-       except Exception as enc_error:
-          print(f"Encoding error in original caption: {enc_error}")
-          old_caption = "Caption encoding error"
+       # Use the robust encoding handler for original caption
+       old_caption = safe_decode_caption(message.caption)
+       old_caption = html.escape(old_caption) if old_caption else ""
 
        if caption:
-          try:
-             if isinstance(caption, bytes):
-                caption = caption.decode('utf-8', errors='ignore')
-             new_caption = str(caption).replace('{caption}', old_caption)
-          except Exception as enc_error:
-             print(f"Encoding error in custom caption: {enc_error}")
-             new_caption = old_caption
+          # Use safe decoding for custom caption as well
+          caption = safe_decode_caption(caption)
+          new_caption = caption.replace('{caption}', old_caption) if caption else old_caption
        else:
           new_caption = old_caption 
     else:
        if caption:
-          try:
-             if isinstance(caption, bytes):
-                caption = caption.decode('utf-8', errors='ignore')
-             new_caption = str(caption).encode('utf-8', errors='ignore').decode('utf-8')
-          except Exception as enc_error:
-             print(f"Encoding error in new caption: {enc_error}")
-             new_caption = ""
+          # Use safe decoding for custom caption when there's no original caption
+          new_caption = safe_decode_caption(caption)
        else:
           new_caption = ""
     return new_caption
