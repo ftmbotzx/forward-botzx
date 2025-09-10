@@ -322,36 +322,7 @@ class CLIENT:
           await phone_msg.reply_text(f"<b>LOGIN ERROR:</b> `{e}`")
        return False
 
-@Client.on_message(filters.private & filters.command('reset'))
-async def forward_tag(bot, m):
-   default = await db.get_configs("01")
-   temp.CONFIGS[m.from_user.id] = default
-   await db.update_configs(m.from_user.id, default)
-   await m.reply("successfully settings reseted ✔️")
 
-@Client.on_message(filters.command('resetall') & filters.user(Config.OWNER_ID))
-async def resetall(bot, message):
-  users = await db.get_all_users()
-  sts = await message.reply("**processing**")
-  TEXT = "total: {}\nsuccess: {}\nfailed: {}\nexcept: {}"
-  total = success = failed = already = 0
-  ERRORS = []
-  async for user in users:
-      user_id = user['id']
-      default = await get_configs(user_id)
-      default['db_uri'] = None
-      total += 1
-      if total %10 == 0:
-         await sts.edit(TEXT.format(total, success, failed, already))
-      try: 
-         await db.update_configs(user_id, default)
-         success += 1
-      except Exception as e:
-         ERRORS.append(e)
-         failed += 1
-  if ERRORS:
-     await message.reply(ERRORS[:100])
-  await sts.edit("completed\n" + TEXT.format(total, success, failed, already))
 
 async def get_configs(user_id):
   #configs = temp.CONFIGS.get(user_id)
