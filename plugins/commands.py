@@ -1799,7 +1799,7 @@ async def updates_command(client, message):
 
 #===================Debug Message Handler===================#
 
-@Client.on_message(filters.private & ~filters.command(["start", "help", "test", "ping", "info", "users", "speedtest", "speed", "system", "sys", "sysinfo", "event", "updates", "myid", "userid", "restart", "r"]))
+@Client.on_message(filters.private & ~filters.command(["start", "help", "test", "ping", "info", "users", "speedtest", "speed", "system", "sys", "sysinfo", "event", "updates", "myid", "userid", "restart", "r", "redeem"]))
 async def debug_message_handler(client, message):
     """Debug handler for non-command messages"""
     user_id = message.from_user.id
@@ -1877,3 +1877,160 @@ async def delete_message_callback(bot, query):
         await query.message.delete()
     except:
         await query.answer("Message deleted!", show_alert=False)
+
+
+#===================Redeem Command===================#
+
+@Client.on_message(filters.private & filters.command(['redeem']))
+async def redeem_command(client, message):
+    """Redeem command for users to redeem event codes"""
+    user = message.from_user
+    user_id = user.id
+    logger.info(f"Redeem command from user {user_id} ({user.first_name})")
+    
+    try:
+        # Check force subscribe for non-sudo users
+        if not Config.is_sudo_user(user_id):
+            subscription_status = await db.check_force_subscribe(user_id, client)
+            if not subscription_status['all_subscribed']:
+                force_sub_text = (
+                    "🔒 <b>Subscribe Required!</b>\n\n"
+                    "To use this bot, you must join our official channels:\n\n"
+                    "📜 <b>Support Group:</b> Get help and updates\n"
+                    "🤖 <b>Update Channel:</b> Latest features and announcements\n\n"
+                    "After joining both channels, click '✅ Check Subscription' to continue."
+                )
+                return await message.reply_text(
+                    text=force_sub_text,
+                    reply_markup=InlineKeyboardMarkup(force_sub_buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                    quote=True
+                )
+        
+        # Check if command has a code argument
+        command_parts = message.text.split()
+        if len(command_parts) < 2:
+            # No code provided, show usage instructions
+            redeem_text = """<b>🎁 Redeem Event Code</b>
+
+<b>How to redeem:</b>
+• Type: <code>/redeem YOUR_CODE</code>
+• Example: <code>/redeem ABC123</code>
+
+<b>📋 Available Events:</b>
+• Check FTM Manager → FTM Event for active events
+• Codes are case-sensitive
+• Each code can only be used once per user
+
+<b>🎯 Rewards vary by your current plan:</b>
+• <b>Free users:</b> Get Plus subscription
+• <b>Plus users:</b> Get Pro subscription upgrade  
+• <b>Pro users:</b> Get subscription extension
+
+<i>Enter your redeem code using the format above!</i>"""
+            
+            buttons = [
+                [InlineKeyboardButton('🎪 View Events', callback_data='settings#ftm_event')],
+                [InlineKeyboardButton('🔙 Back to Menu', callback_data='back')]
+            ]
+            
+            return await message.reply_text(
+                text=redeem_text,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML,
+                quote=True
+            )
+        
+        # Get the redeem code from command
+        redeem_code = command_parts[1].upper().strip()
+        
+        if len(redeem_code) != 6:
+            return await message.reply_text(
+                "❌ <b>Invalid code format!</b>\n\n"
+                "Redeem codes must be exactly 6 characters long.\n"
+                "Example: <code>/redeem ABC123</code>",
+                parse_mode=enums.ParseMode.HTML,
+                quote=True
+            )
+        
+        # Show processing message
+        processing_msg = await message.reply_text(
+            "🔄 <b>Processing redeem code...</b>\n⏳ Please wait...",
+            parse_mode=enums.ParseMode.HTML,
+            quote=True
+        )
+        
+        # Get user's current plan
+        premium_info = await db.get_premium_user_details(user_id)
+        if premium_info:
+            user_plan = premium_info.get('plan_type', 'free')
+        else:
+            user_plan = 'free'
+        
+        # Validate and redeem the code
+        code_doc, error_msg = await db.validate_redeem_code(redeem_code, user_plan)
+        
+        if not code_doc:
+            await processing_msg.edit_text(
+                f"❌ <b>Redemption Failed</b>\n\n{error_msg}",
+                parse_mode=enums.ParseMode.HTML
+            )
+            return
+        
+        # Attempt to redeem the code
+        success, redeem_msg = await db.redeem_event_code(user_id, redeem_code, user_plan)
+        
+        if success:
+            # Get event details
+            event = await db.get_event_by_id(code_doc['event_id'])
+            event_name = event.get('event_name', 'Unknown Event') if event else 'Unknown Event'
+            
+            success_text = f"""✅ <b>Code Redeemed Successfully!</b>
+
+<b>🎉 Event:</b> {event_name}
+<b>🎁 Reward:</b> {redeem_msg}
+<b>📅 Redeemed:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+<b>🎯 Your Benefits:</b>
+• Premium features activated
+• Extended subscription period
+• Priority support access
+
+<i>Thank you for participating in our event! 🎊</i>"""
+            
+            buttons = [
+                [InlineKeyboardButton('💎 My Plan', callback_data='my_plan')],
+                [InlineKeyboardButton('📊 Account Info', callback_data='info_callback')]
+            ]
+            
+            await processing_msg.edit_text(
+                text=success_text,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+            # Notify admin about redemption
+            try:
+                notify = NotificationManager(client)
+                await notify.notify_user_action(
+                    user_id, 
+                    "Code Redemption", 
+                    f"User: {user.first_name} | Code: {redeem_code} | Event: {event_name}"
+                )
+            except Exception as notify_err:
+                logger.error(f"Notification error: {notify_err}")
+                
+            logger.info(f"Code {redeem_code} redeemed by user {user_id} for event {event_name}")
+            
+        else:
+            await processing_msg.edit_text(
+                f"❌ <b>Redemption Failed</b>\n\n{redeem_msg}",
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in redeem command for user {user_id}: {e}", exc_info=True)
+        await message.reply_text(
+            "❌ An error occurred while processing your redeem code. Please try again.",
+            quote=True
+        )
