@@ -1679,6 +1679,119 @@ async def event_command(client, message):
         await message.reply_text("❌ An error occurred while loading event management. Please try again.")
 
 
+#===================Updates Command===================#
+
+@Client.on_message(filters.private & filters.command(['updates']))
+async def updates_command(client, message):
+    """Updates command to show bot updates and changelog"""
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
+    
+    logger.info(f"Updates command from user {user_id} ({user_name})")
+    
+    try:
+        # Check force subscribe for non-sudo users
+        if not Config.is_sudo_user(user_id):
+            subscription_status = await db.check_force_subscribe(user_id, client)
+            if not subscription_status['all_subscribed']:
+                force_sub_text = (
+                    "🔒 <b>Subscribe Required!</b>\n\n"
+                    "To use this bot, you must join our official channels:\n\n"
+                    "📜 <b>Support Group:</b> Get help and updates\n"
+                    "🤖 <b>Update Channel:</b> Latest features and announcements\n\n"
+                    "After joining both channels, click '✅ Check Subscription' to continue."
+                )
+                return await message.reply_text(
+                    text=force_sub_text,
+                    reply_markup=InlineKeyboardMarkup(force_sub_buttons),
+                    parse_mode=enums.ParseMode.HTML,
+                    quote=True
+                )
+        
+        # Show updates menu directly
+        updates_menu_text = """<b>📄 Developer Updates</b>
+
+<b>Stay informed about latest changes and upcoming features!</b>
+
+<b>📋 Available Options:</b>
+• <b>This Update</b> - View current update changes
+• <b>Upcoming Update</b> - Preview future features
+
+<i>Select an option to continue:</i>"""
+
+        buttons = [
+            [InlineKeyboardButton('📊 This Update', callback_data='this_update')],
+            [InlineKeyboardButton('🚀 Upcoming Update', callback_data='upcoming_update')],
+            [InlineKeyboardButton('🔙 Back to Menu', callback_data='back')]
+        ]
+
+        await message.reply_text(
+            text=updates_menu_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            quote=True
+        )
+        
+        logger.info(f"Updates menu sent to user {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in updates command for user {user_id}: {e}", exc_info=True)
+        await message.reply_text(
+            "❌ An error occurred while loading updates. Please try again.",
+            quote=True
+        )
+
+
+#===================Debug Commands===================#
+
+@Client.on_message(filters.private & filters.command(['myid', 'userid']))
+async def my_id_command(client, message):
+    """Command to show user their Telegram ID for debugging permissions"""
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
+    username = message.from_user.username or "No username"
+    
+    # Check if user is already an admin
+    is_owner = user_id in Config.OWNER_ID
+    is_admin = user_id in Config.ADMIN_ID
+    is_sudo = Config.is_sudo_user(user_id)
+    
+    status = "👤 Regular User"
+    if is_owner:
+        status = "👑 Owner"
+    elif is_admin:
+        status = "🛡️ Admin"
+    elif is_sudo:
+        status = "⚡ Sudo User"
+    
+    info_text = f"""<b>🆔 Your Telegram Information</b>
+
+<b>👤 Basic Info:</b>
+• <b>Name:</b> {user_name}
+• <b>Username:</b> @{username}
+• <b>User ID:</b> <code>{user_id}</code>
+• <b>Status:</b> {status}
+
+<b>🔐 Permission Status:</b>
+• <b>Owner Access:</b> {"✅ Yes" if is_owner else "❌ No"}
+• <b>Admin Access:</b> {"✅ Yes" if is_admin else "❌ No"}
+• <b>Sudo Access:</b> {"✅ Yes" if is_sudo else "❌ No"}
+
+<b>📋 Current Configuration:</b>
+• <b>Configured Owners:</b> {Config.OWNER_ID}
+• <b>Configured Admins:</b> {Config.ADMIN_ID}
+
+<i>If you should have admin access but don't, share your User ID with the developer to update the configuration.</i>"""
+
+    await message.reply_text(
+        text=info_text,
+        parse_mode=enums.ParseMode.HTML,
+        quote=True
+    )
+    
+    logger.info(f"User ID info sent to {user_id} ({user_name}) - Status: {status}")
+
+
 @Client.on_callback_query(filters.regex(r'^delete_message$'))
 async def delete_message_callback(bot, query):
     """Delete the message"""
