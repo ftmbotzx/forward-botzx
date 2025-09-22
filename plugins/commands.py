@@ -10,7 +10,17 @@ from datetime import datetime
 from database import db, mongodb_version
 from config import Config, temp
 from platform import python_version
-from translation import Translation
+try:
+    from translation import Translation
+except ImportError:
+    # Fallback if Translation module has issues
+    class Translation:
+        START_TXT = "🎉 <b>Welcome {}!</b>\n\nThis is FTM Developer Bot. Use the buttons below to get started."
+        HELP_TXT = "📋 <b>Help</b>\n\nThis bot helps you forward messages between Telegram channels."
+        HOW_USE_TXT = "🛠️ <b>How to Use</b>\n\n1. Click Settings to configure\n2. Add your bot or user session\n3. Set source and target channels\n4. Start forwarding!"
+        ABOUT_TXT = "ℹ️ <b>About</b>\n\nFTM Developer Bot v2.0\nBuilt with Pyrogram"
+        STATUS_TXT = "📊 <b>Bot Statistics</b>\n\n<b>Total Users:</b> {}\n<b>Total Bots:</b> {}\n<b>Active Forwards:</b> {}\n<b>Total Channels:</b> {}"
+        PLAN_INFO_MSG = "💎 <b>Premium Plans</b>\n\nUpgrade to get unlimited forwarding and premium features!"
 from utils.notifications import NotificationManager
 from pyrogram import Client, filters, enums, __version__ as pyrogram_version
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaDocument
@@ -52,13 +62,19 @@ async def start(client, message):
     logger.info(f"Start command from user {user.id} ({user.first_name})")
 
     try:
+        # Always reply first to acknowledge the command
+        await message.reply_text("🔄 Processing your request...", quote=True)
+        
         if not await db.is_user_exist(user.id):
             await db.add_user(user.id, user.first_name)
             logger.info(f"New user added: {user.id}")
 
             # Notify about new user
-            notify = NotificationManager(client)
-            await notify.notify_user_action(user.id, "New User Registration", f"User: {user.first_name}")
+            try:
+                notify = NotificationManager(client)
+                await notify.notify_user_action(user.id, "New User Registration", f"User: {user.first_name}")
+            except Exception as notify_err:
+                logger.error(f"Notification error: {notify_err}")
 
         # Auto-grant premium to sudo users (owners and admins)
         if Config.is_sudo_user(user.id):
@@ -68,40 +84,55 @@ async def start(client, message):
                 await db.add_premium_user(user.id, "pro", 3650, 0)
                 logger.info(f"Auto-granted premium to sudo user: {user.id}")
 
-        # Check force subscribe for non-sudo users
+        # Check force subscribe for non-sudo users only
         if not Config.is_sudo_user(user.id):
-            subscription_status = await db.check_force_subscribe(user.id, client)
-            if not subscription_status['all_subscribed']:
-                force_sub_text = (
-                    "🔒 <b>Subscribe Required!</b>\n\n"
-                    "To use this bot, you must join our official channels:\n\n"
-                    "📜 <b>Support Group:</b> Get help and updates\n"
-                    "🤖 <b>Update Channel:</b> Latest features and announcements\n\n"
-                    "After joining both channels, click '✅ Check Subscription' to continue."
-                )
-                return await message.reply_text(
-                    text=force_sub_text,
-                    reply_markup=InlineKeyboardMarkup(force_sub_buttons),
-                    quote=True
-                )
+            try:
+                subscription_status = await db.check_force_subscribe(user.id, client)
+                if not subscription_status.get('all_subscribed', True):
+                    force_sub_text = (
+                        "🔒 <b>Subscribe Required!</b>\n\n"
+                        "To use this bot, you must join our official channels:\n\n"
+                        "📜 <b>Support Group:</b> Get help and updates\n"
+                        "🤖 <b>Update Channel:</b> Latest features and announcements\n\n"
+                        "After joining both channels, click '✅ Check Subscription' to continue."
+                    )
+                    return await message.edit_text(
+                        text=force_sub_text,
+                        reply_markup=InlineKeyboardMarkup(force_sub_buttons)
+                    )
+            except Exception as sub_err:
+                logger.error(f"Force subscribe check error: {sub_err}")
+                # Continue with normal flow if force subscribe fails
 
         reply_markup = InlineKeyboardMarkup(main_buttons)
-        jishubotz = await message.reply_sticker("CAACAgUAAxkBAAECEEBlLA-nYcsWmsNWgE8-xqIkriCWAgACJwEAAsiUZBTiPWKAkUSmmh4E")
-        await asyncio.sleep(2)
-        await jishubotz.delete()
-        text=Translation.START_TXT.format(user.mention)
-        await message.reply_text(
+        
+        # Try to send sticker, but don't fail if it doesn't work
+        try:
+            jishubotz = await message.reply_sticker("CAACAgUAAxkBAAECEEBlLA-nYcsWmsNWgE8-xqIkriCWAgACJwEAAsiUZBTiPWKAkUSmmh4E")
+            await asyncio.sleep(2)
+            await jishubotz.delete()
+        except Exception as sticker_err:
+            logger.error(f"Sticker error: {sticker_err}")
+
+        text = Translation.START_TXT.format(user.mention)
+        await message.edit_text(
             text=text,
-            reply_markup=reply_markup,
-            quote=True
+            reply_markup=reply_markup
         )
         logger.info(f"Start message sent to user {user.id}")
+        
     except Exception as e:
         logger.error(f"Error in start command for user {user.id}: {e}", exc_info=True)
-        await message.reply_text(
-            "❌ An error occurred. Please try again.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Back', callback_data='back')]])
-        )
+        try:
+            await message.edit_text(
+                "❌ An error occurred. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Back', callback_data='back')]])
+            )
+        except:
+            await message.reply_text(
+                "❌ An error occurred. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Back', callback_data='back')]])
+            )
 
 # Force subscribe callback handler
 @Client.on_callback_query(filters.regex(r'^check_subscription$'))
@@ -223,6 +254,30 @@ async def restart(client, message):
 
 
 #==================Callback Functions==================#
+
+#==================Test Command==================#
+
+@Client.on_message(filters.private & filters.command(['test', 'ping']))
+async def test_command(client, message):
+    """Simple test command to check if bot is responding"""
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
+    
+    logger.info(f"Test command from user {user_id} ({user_name})")
+    
+    try:
+        await message.reply_text(
+            f"✅ <b>Bot is working!</b>\n\n"
+            f"<b>User:</b> {user_name}\n"
+            f"<b>User ID:</b> <code>{user_id}</code>\n"
+            f"<b>Is Admin:</b> {'Yes' if Config.is_sudo_user(user_id) else 'No'}\n"
+            f"<b>Time:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            parse_mode=enums.ParseMode.HTML,
+            quote=True
+        )
+    except Exception as e:
+        logger.error(f"Error in test command: {e}")
+        await message.reply_text("❌ Error in test command", quote=True)
 
 #==================Help Command==================#
 
@@ -1741,6 +1796,29 @@ async def updates_command(client, message):
             quote=True
         )
 
+
+#===================Debug Message Handler===================#
+
+@Client.on_message(filters.private & ~filters.command(["start", "help", "test", "ping", "info", "users", "speedtest", "speed", "system", "sys", "sysinfo", "event", "updates", "myid", "userid", "restart", "r"]))
+async def debug_message_handler(client, message):
+    """Debug handler for non-command messages"""
+    user_id = message.from_user.id
+    logger.info(f"Non-command message from user {user_id}: {message.text[:50] if message.text else 'Non-text message'}")
+    
+    try:
+        await message.reply_text(
+            "ℹ️ <b>Bot Commands</b>\n\n"
+            "Available commands:\n"
+            "• /start - Start the bot\n"
+            "• /test or /ping - Test if bot is working\n"
+            "• /help - Get help\n"
+            "• /info - Your account info\n\n"
+            "Or use /start to access the main menu.",
+            parse_mode=enums.ParseMode.HTML,
+            quote=True
+        )
+    except Exception as e:
+        logger.error(f"Error in debug message handler: {e}")
 
 #===================Debug Commands===================#
 
