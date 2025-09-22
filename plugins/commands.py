@@ -50,16 +50,16 @@ force_sub_buttons = [[
 async def start(client, message):
     user = message.from_user
     logger.info(f"Start command from user {user.id} ({user.first_name})")
-    
+
     try:
         if not await db.is_user_exist(user.id):
             await db.add_user(user.id, user.first_name)
             logger.info(f"New user added: {user.id}")
-            
+
             # Notify about new user
             notify = NotificationManager(client)
             await notify.notify_user_action(user.id, "New User Registration", f"User: {user.first_name}")
-        
+
         # Auto-grant premium to sudo users (owners and admins)
         if Config.is_sudo_user(user.id):
             if not await db.is_premium_user(user.id):
@@ -67,7 +67,7 @@ async def start(client, message):
                 # Grant unlimited premium to sudo users (expires in 10 years)
                 await db.add_premium_user(user.id, "pro", 3650, 0)
                 logger.info(f"Auto-granted premium to sudo user: {user.id}")
-        
+
         # Check force subscribe for non-sudo users
         if not Config.is_sudo_user(user.id):
             subscription_status = await db.check_force_subscribe(user.id, client)
@@ -84,7 +84,7 @@ async def start(client, message):
                     reply_markup=InlineKeyboardMarkup(force_sub_buttons),
                     quote=True
                 )
-        
+
         reply_markup = InlineKeyboardMarkup(main_buttons)
         jishubotz = await message.reply_sticker("CAACAgUAAxkBAAECEEBlLA-nYcsWmsNWgE8-xqIkriCWAgACJwEAAsiUZBTiPWKAkUSmmh4E")
         await asyncio.sleep(2)
@@ -107,18 +107,18 @@ async def start(client, message):
 @Client.on_callback_query(filters.regex(r'^check_subscription$'))
 async def check_subscription_callback(client, callback_query):
     user_id = callback_query.from_user.id
-    
+
     try:
         # Check if user is now subscribed
         subscription_status = await db.check_force_subscribe(user_id, client)
-        
+
         if subscription_status['all_subscribed']:
             await callback_query.answer("✅ Subscription verified! Welcome!", show_alert=True)
-            
+
             # Show main menu
             reply_markup = InlineKeyboardMarkup(main_buttons)
             text = f"🎉 <b>Welcome {callback_query.from_user.first_name}!</b>\n\n" + Translation.START_TXT.format(callback_query.from_user.mention)
-            
+
             await callback_query.message.edit_text(
                 text=text,
                 reply_markup=reply_markup
@@ -129,9 +129,9 @@ async def check_subscription_callback(client, callback_query):
                 missing.append("Update Channel")
             if not subscription_status['support_group']:
                 missing.append("Support Group")
-                
+
             await callback_query.answer(f"❌ Please join: {', '.join(missing)}", show_alert=True)
-            
+
     except Exception as e:
         await callback_query.answer("❌ Error checking subscription. Please try again.", show_alert=True)
 
@@ -140,40 +140,40 @@ async def check_subscription_callback(client, callback_query):
 async def premium_callback(client, callback_query):
     user_id = callback_query.from_user.id
     callback_data = callback_query.data
-    
+
     if callback_data in ['premium_plans', 'premium#plans', 'premium#main']:
         # Get user's current plan
         current_plan = "FREE"
         plan_details = await db.get_premium_user_details(user_id)
-        
+
         if plan_details:
             current_plan = plan_details.get('plan_type', 'FREE').upper()
-        
+
         plans_text = (
             "💎 <b>Premium Plans</b>\n\n"
             f"👤 <b>Your Current Plan:</b> {current_plan}\n"
         )
-        
+
         if plan_details and plan_details.get('expires_at'):
             from datetime import datetime
             expires_at = plan_details['expires_at']
             if expires_at > datetime.utcnow():
                 plans_text += f"⏰ <b>Expires:</b> {expires_at.strftime('%Y-%m-%d %H:%M')}\n"
-        
+
         plans_text += (
             "\n📋 <b>Available Plans:</b>\n\n"
             "🆓 <b>FREE PLAN</b>\n"
             "• 1 forwarding process per month\n"
             "• Basic features only\n"
             "• No FTM mode\n\n"
-            
+
             "✨ <b>PLUS PLAN</b>\n"
             "• Unlimited forwarding processes\n"
             "• All basic features\n"
             "• No FTM mode\n"
             "• 15 days: ₹199\n"
             "• 30 days: ₹299\n\n"
-            
+
             "🏆 <b>PRO PLAN</b>\n"
             "• Unlimited forwarding processes\n"
             "• FTM mode enabled\n"
@@ -181,11 +181,11 @@ async def premium_callback(client, callback_query):
             "• All premium features\n"
             "• 15 days: ₹299\n"
             "• 30 days: ₹549\n\n"
-            
+
             "💳 <b>Payment:</b> UPI - 6354228145@axl\n"
             "📸 <b>After payment, send screenshot with /verify</b>"
         )
-        
+
         plans_buttons = [
             [
                 InlineKeyboardButton("✨ Plus 15 Days (₹199)", callback_data="buy_plus_15"),
@@ -200,7 +200,7 @@ async def premium_callback(client, callback_query):
                 InlineKeyboardButton("🔙 Back", callback_data="back")
             ]
         ]
-        
+
         await callback_query.message.edit_text(
             text=plans_text,
             reply_markup=InlineKeyboardMarkup(plans_buttons)
@@ -219,7 +219,7 @@ async def restart(client, message):
     await asyncio.sleep(5)
     await msg.edit("<i>Server Restarted Successfully ✅</i>")
     os.execl(sys.executable, sys.executable, *sys.argv)
-    
+
 
 
 #==================Callback Functions==================#
@@ -230,7 +230,7 @@ async def restart(client, message):
 async def help_command(client, message):
     user_id = message.from_user.id
     logger.info(f"Help command from user {user_id}")
-    
+
     try:
         # Check force subscribe for non-sudo users
         if not Config.is_sudo_user(user_id):
@@ -248,10 +248,10 @@ async def help_command(client, message):
                     reply_markup=InlineKeyboardMarkup(force_sub_buttons),
                     quote=True
                 )
-        
+
         # Check if user is admin to show admin commands
         is_admin = Config.is_sudo_user(user_id)
-        
+
         # Create help buttons
         buttons = [[
             InlineKeyboardButton('🛠️ How To Use Me 🛠️', callback_data='how_to_use')
@@ -261,13 +261,13 @@ async def help_command(client, message):
         ],[
             InlineKeyboardButton('💬 Contact Admin', callback_data='contact_admin')
         ]]
-        
+
         # Add admin commands button for admins only
         if is_admin:
             buttons.append([InlineKeyboardButton('👨‍💻 Admin Commands 👨‍💻', callback_data='admin_commands')])
-        
+
         buttons.append([InlineKeyboardButton('🔙 Back', callback_data='back')])
-        
+
         await message.reply_text(
             text=Translation.HELP_TXT,
             reply_markup=InlineKeyboardMarkup(buttons)
@@ -281,7 +281,7 @@ async def help_command(client, message):
 async def helpcb(bot, query):
     user_id = query.from_user.id
     logger.info(f"Help callback from user {user_id}")
-    
+
     try:
         # Check force subscribe for non-sudo users
         if not Config.is_sudo_user(user_id):
@@ -298,10 +298,10 @@ async def helpcb(bot, query):
                     text=force_sub_text,
                     reply_markup=InlineKeyboardMarkup(force_sub_buttons)
                 )
-        
+
         # Check if user is admin to show admin commands
         is_admin = Config.is_sudo_user(user_id)
-        
+
         # Create help buttons
         buttons = [[
             InlineKeyboardButton('🛠️ How To Use Me 🛠️', callback_data='how_to_use')
@@ -311,13 +311,13 @@ async def helpcb(bot, query):
         ],[
             InlineKeyboardButton('💬 Contact Admin', callback_data='contact_admin')
         ]]
-        
+
         # Add admin commands button for admins only
         if is_admin:
             buttons.append([InlineKeyboardButton('👨‍💻 Admin Commands 👨‍💻', callback_data='admin_commands')])
-        
+
         buttons.append([InlineKeyboardButton('🔙 Back', callback_data='back')])
-        
+
         await query.message.edit_text(
             text=Translation.HELP_TXT,
             reply_markup=InlineKeyboardMarkup(buttons)
@@ -331,11 +331,11 @@ async def helpcb(bot, query):
 async def admin_commands_callback(bot, query):
     user_id = query.from_user.id
     logger.info(f"Admin commands callback from user {user_id}")
-    
+
     # Double-check admin status
     if not Config.is_sudo_user(user_id):
         return await query.answer("❌ You don't have permission to access admin commands!", show_alert=True)
-    
+
     try:
         admin_buttons = [[
             InlineKeyboardButton('💎 Add Premium', callback_data='admin_add_premium'),
@@ -353,7 +353,7 @@ async def admin_commands_callback(bot, query):
             InlineKeyboardButton('🗑️ Reset All Users', callback_data='admin_resetall_info'),
             InlineKeyboardButton('🔙 Back to Help', callback_data='help')
         ]]
-        
+
         await query.message.edit_text(
             text="<b>🔧 Admin Commands Panel</b>\n\n"
                  "<b>Premium Management Commands:</b>\n"
@@ -378,7 +378,7 @@ async def admin_commands_callback(bot, query):
 async def how_to_use(bot, query):
     user_id = query.from_user.id
     logger.info(f"How to use callback from user {user_id}")
-    
+
     try:
         # Check force subscribe for non-sudo users
         if not Config.is_sudo_user(user_id):
@@ -395,7 +395,7 @@ async def how_to_use(bot, query):
                     text=force_sub_text,
                     reply_markup=InlineKeyboardMarkup(force_sub_buttons)
                 )
-        
+
         await query.message.edit_text(
             text=Translation.HOW_USE_TXT,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Back', callback_data='help')]]),
@@ -411,7 +411,7 @@ async def how_to_use(bot, query):
 async def back(bot, query):
     user_id = query.from_user.id
     logger.info(f"Back callback from user {user_id}")
-    
+
     try:
         reply_markup = InlineKeyboardMarkup(main_buttons)
         await query.message.edit_text(
@@ -428,7 +428,7 @@ async def back(bot, query):
 async def about(bot, query):
     user_id = query.from_user.id
     logger.info(f"About callback from user {user_id}")
-    
+
     try:
         # Check force subscribe for non-sudo users
         if not Config.is_sudo_user(user_id):
@@ -445,7 +445,7 @@ async def about(bot, query):
                     text=force_sub_text,
                     reply_markup=InlineKeyboardMarkup(force_sub_buttons)
                 )
-        
+
         await query.message.edit_text(
             text=Translation.ABOUT_TXT,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('🔙 Back', callback_data='back')]]),
@@ -462,7 +462,7 @@ async def about(bot, query):
 async def status(bot, query):
     user_id = query.from_user.id
     logger.info(f"Status callback from user {user_id}")
-    
+
     try:
         # Check force subscribe for non-sudo users
         if not Config.is_sudo_user(user_id):
@@ -479,7 +479,7 @@ async def status(bot, query):
                     text=force_sub_text,
                     reply_markup=InlineKeyboardMarkup(force_sub_buttons)
                 )
-        
+
         users_count, bots_count = await db.total_users_bots_count()
         total_channels = await db.total_channels()
         await query.message.edit_text(
@@ -499,45 +499,45 @@ async def status(bot, query):
 async def speed_test_command(client, message):
     user_id = message.from_user.id
     logger.info(f"Speedtest command from user {user_id}")
-    
+
     # Check if user is owner or admin
     if user_id not in Config.OWNER_ID:
         return await message.reply_text("❌ This command is only available for administrators.")
-    
+
     status_msg = await message.reply_text("🔄 <b>Running Network Speed Test...</b>\n⏳ Please wait, this may take a moment.")
-    
+
     try:
         # Initialize speedtest
         st = speedtest.Speedtest()
-        
+
         # Update status
         await status_msg.edit_text("🔄 <b>Finding best server...</b>\n⏳ Please wait.")
-        
+
         # Get best server
         st.get_best_server()
-        
+
         # Update status
         await status_msg.edit_text("🔄 <b>Testing download speed...</b>\n⏳ Please wait.")
-        
+
         # Test download speed
         download_speed = st.download()
-        
+
         # Update status  
         await status_msg.edit_text("🔄 <b>Testing upload speed...</b>\n⏳ Please wait.")
-        
+
         # Test upload speed
         upload_speed = st.upload()
-        
+
         # Get ping
         ping = st.results.ping
-        
+
         # Get server info
         server = st.get_best_server()
-        
+
         # Convert bytes to Mbps
         download_mbps = download_speed / 1024 / 1024
         upload_mbps = upload_speed / 1024 / 1024
-        
+
         # Format the result
         speed_text = f"""<b>🌐 Bot Server Network Speed Test</b>
 
@@ -555,10 +555,10 @@ async def speed_test_command(client, message):
 ├ <b>Test Date:</b> <code>{st.results.timestamp}</code>
 ├ <b>Note:</b> <code>Shows bot server network, not your location</code>
 └ <b>Share URL:</b> <a href="{st.results.share()}">View Results</a>"""
-        
+
         await status_msg.edit_text(speed_text, disable_web_page_preview=True)
         logger.info(f"Speedtest completed for user {user_id}")
-        
+
     except Exception as e:
         error_msg = f"❌ <b>Speed Test Failed</b>\n\n<b>Error:</b> <code>{str(e)}</code>"
         await status_msg.edit_text(error_msg)
@@ -571,60 +571,60 @@ async def speed_test_command(client, message):
 async def system_info_command(client, message):
     user_id = message.from_user.id
     logger.info(f"System info command from user {user_id}")
-    
+
     # Check if user is owner or admin
     if user_id not in Config.OWNER_ID:
         return await message.reply_text("❌ This command is only available for administrators.")
-    
+
     status_msg = await message.reply_text("🔄 <b>Gathering system information...</b>")
-    
+
     try:
         # Get system info
         uname = platform.uname()
-        
+
         # Get CPU info
         cpu_count = psutil.cpu_count()
         cpu_percent = psutil.cpu_percent(interval=1)
         cpu_freq = psutil.cpu_freq()
-        
+
         # Get memory info
         memory = psutil.virtual_memory()
         memory_total = memory.total / (1024**3)  # GB
         memory_used = memory.used / (1024**3)   # GB
         memory_percent = memory.percent
-        
+
         # Get disk info
         disk = psutil.disk_usage('/')
         disk_total = disk.total / (1024**3)  # GB
         disk_used = disk.used / (1024**3)    # GB
         disk_percent = (disk.used / disk.total) * 100
-        
+
         # Get network info
         net_io = psutil.net_io_counters()
         bytes_sent = net_io.bytes_sent / (1024**2)  # MB
         bytes_recv = net_io.bytes_recv / (1024**2)  # MB
-        
+
         # Get boot time
         boot_time = psutil.boot_time()
-        
+
         # Get process info
         process_count = len(psutil.pids())
-        
+
         # Get Python info
         python_ver = python_version()
-        
+
         # Format uptime
         import datetime
         uptime = datetime.datetime.now() - datetime.datetime.fromtimestamp(boot_time)
         uptime_str = str(uptime).split('.')[0]
-        
+
         # Get load average (Unix-like systems)
         try:
             load_avg = os.getloadavg()
             load_str = f"{load_avg[0]:.2f}, {load_avg[1]:.2f}, {load_avg[2]:.2f}"
         except:
             load_str = "Not Available"
-        
+
         system_text = f"""<b>🖥️ Bot Server System Information</b>
 
 <b>💻 Server System Details:</b>
@@ -660,10 +660,10 @@ async def system_info_command(client, message):
 ├ <b>Server Uptime:</b> <code>{uptime_str}</code>
 ├ <b>Note:</b> <code>Shows bot server stats, not your device</code>
 └ <b>Bot Status:</b> <code>Running ✅</code>"""
-        
+
         await status_msg.edit_text(system_text)
         logger.info(f"System info sent to user {user_id}")
-        
+
     except Exception as e:
         error_msg = f"❌ <b>System Info Failed</b>\n\n<b>Error:</b> <code>{str(e)}</code>"
         await status_msg.edit_text(error_msg)
@@ -675,10 +675,10 @@ async def system_info_command(client, message):
 @Client.on_callback_query(filters.regex(r'^admin_change_price$'))
 async def admin_change_price_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if not Config.is_sudo_user(user_id):
         return await query.answer("❌ You don't have permission to use this command!", show_alert=True)
-    
+
     try:
         await query.message.edit_text(
             text=f"<b>💰 Current Premium Price</b>\n\n"
@@ -697,30 +697,30 @@ async def admin_change_price_callback(bot, query):
 @Client.on_callback_query(filters.regex(r'^admin_system$'))
 async def admin_system_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if not Config.is_sudo_user(user_id):
         return await query.answer("❌ You don't have permission to use this command!", show_alert=True)
-    
+
     # Redirect to existing system info command logic
     await system_info_command(bot, query.message)
 
 @Client.on_callback_query(filters.regex(r'^admin_speedtest$'))
 async def admin_speedtest_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if not Config.is_sudo_user(user_id):
         return await query.answer("❌ You don't have permission to use this command!", show_alert=True)
-    
+
     # Redirect to existing speedtest command logic
     await speed_test_command(bot, query.message)
 
 @Client.on_callback_query(filters.regex(r'^admin_restart$'))
 async def admin_restart_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if user_id not in Config.OWNER_ID:
         return await query.answer("❌ Only owners can restart the bot!", show_alert=True)
-    
+
     try:
         await query.message.edit_text(
             text="<b>🔄 Bot Restart</b>\n\n"
@@ -737,20 +737,20 @@ async def admin_restart_callback(bot, query):
 @Client.on_callback_query(filters.regex(r'^confirm_restart$'))
 async def confirm_restart_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if user_id not in Config.OWNER_ID:
         return await query.answer("❌ Only owners can restart the bot!", show_alert=True)
-    
+
     await query.message.edit_text("🔄 <b>Restarting bot...</b>\n\n<i>Please wait...</i>")
     await restart(bot, query.message)
 
 @Client.on_callback_query(filters.regex(r'^admin_add_premium$'))
 async def admin_add_premium_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if not Config.is_sudo_user(user_id):
         return await query.answer("❌ You don't have permission to use this command!", show_alert=True)
-    
+
     try:
         await query.message.edit_text(
             text="<b>💎 Add Premium User</b>\n\n"
@@ -769,10 +769,10 @@ async def admin_add_premium_callback(bot, query):
 @Client.on_callback_query(filters.regex(r'^admin_remove_premium$'))
 async def admin_remove_premium_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if not Config.is_sudo_user(user_id):
         return await query.answer("❌ You don't have permission to use this command!", show_alert=True)
-    
+
     try:
         await query.message.edit_text(
             text="<b>❌ Remove Premium User</b>\n\n"
@@ -790,10 +790,10 @@ async def admin_remove_premium_callback(bot, query):
 @Client.on_callback_query(filters.regex(r'^admin_premium_users$'))
 async def admin_premium_users_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if not Config.is_sudo_user(user_id):
         return await query.answer("❌ You don't have permission to use this command!", show_alert=True)
-    
+
     try:
         await query.message.edit_text(
             text="<b>👥 Premium Users List</b>\n\n"
@@ -810,10 +810,10 @@ async def admin_premium_users_callback(bot, query):
 @Client.on_callback_query(filters.regex(r'^admin_start_chat$'))
 async def admin_start_chat_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if not Config.is_sudo_user(user_id):
         return await query.answer("❌ You don't have permission to use this command!", show_alert=True)
-    
+
     try:
         await query.message.edit_text(
             text="<b>💬 Start Admin Chat</b>\n\n"
@@ -832,10 +832,10 @@ async def admin_start_chat_callback(bot, query):
 @Client.on_callback_query(filters.regex(r'^admin_resetall_info$'))
 async def admin_resetall_info_callback(bot, query):
     user_id = query.from_user.id
-    
+
     if user_id not in Config.OWNER_ID:
         return await query.answer("❌ Only owners can reset all users!", show_alert=True)
-    
+
     try:
         await query.message.edit_text(
             text="<b>🗑️ Reset Commands Information</b>\n\n"
@@ -869,11 +869,11 @@ async def get_free_trial_callback(bot, query):
     user_id = query.from_user.id
     user_name = query.from_user.first_name
     logger.info(f"Free trial requested by user {user_id} ({user_name})")
-    
+
     try:
         # Check if user can use free trial (1 per month)
         can_process, reason = await db.can_user_process(user_id)
-        
+
         if not can_process and reason == "monthly_limit_reached":
             await query.answer(
                 "❌ You have already used your free trial this month!\n"
@@ -881,7 +881,7 @@ async def get_free_trial_callback(bot, query):
                 show_alert=True
             )
             return
-        
+
         if await db.is_premium_user(user_id):
             await query.answer(
                 "✅ You already have Premium access!\n"
@@ -889,10 +889,10 @@ async def get_free_trial_callback(bot, query):
                 show_alert=True
             )
             return
-        
+
         # Grant the free trial (add 1 extra process - total 2 for this month)
         trial_granted = await db.add_trial_processes(user_id, 1)
-        
+
         if not trial_granted:
             await query.answer(
                 "❌ You have already claimed your free trial this month!\n"
@@ -900,7 +900,7 @@ async def get_free_trial_callback(bot, query):
                 show_alert=True
             )
             return
-        
+
         # Send notification to admins
         try:
             notify = NotificationManager(bot)
@@ -911,7 +911,7 @@ async def get_free_trial_callback(bot, query):
             )
         except Exception as notify_err:
             logger.error(f"Failed to send free trial notification: {notify_err}")
-        
+
         # Send confirmation message to user
         await query.message.edit_text(
             text="<b>🎉 Free Trial Activated!</b>\n\n"
@@ -934,9 +934,9 @@ async def get_free_trial_callback(bot, query):
                 [InlineKeyboardButton('🔙 Back to Menu', callback_data='back')]
             ])
         )
-        
+
         logger.info(f"Free trial granted to user {user_id}")
-        
+
     except Exception as e:
         logger.error(f"Error in free trial callback for user {user_id}: {e}", exc_info=True)
         await query.answer("❌ An error occurred. Please try again.", show_alert=True)
@@ -947,7 +947,7 @@ async def contact_admin_callback(bot, query):
     user_name = query.from_user.first_name
     user_username = f"@{query.from_user.username}" if query.from_user.username else ""
     logger.info(f"Contact admin callback from user {user_id} ({user_name})")
-    
+
     try:
         # Check if user already has a pending chat request
         existing_request = await db.get_pending_chat_request(user_id)
@@ -958,7 +958,7 @@ async def contact_admin_callback(bot, query):
                 show_alert=True
             )
             return
-        
+
         # Check if user is already in an active chat
         active_chat = await db.get_active_chat_for_user(user_id)
         if active_chat:
@@ -968,10 +968,10 @@ async def contact_admin_callback(bot, query):
                 show_alert=True
             )
             return
-            
+
         # Create chat request
         request_id = await db.create_chat_request(user_id)
-        
+
         # Notification for contact request
         try:
             from utils.notifications import NotificationManager
@@ -983,7 +983,7 @@ async def contact_admin_callback(bot, query):
             )
         except Exception as notif_err:
             logger.error(f"Failed to send contact request notification: {notif_err}")
-        
+
         await query.message.edit_text(
             text="<b>💬 Contact Request Submitted!</b>\n\n"
                  "<b>Your request to contact admin has been submitted.</b>\n"
@@ -994,10 +994,10 @@ async def contact_admin_callback(bot, query):
                 [InlineKeyboardButton('🔙 Back to Menu', callback_data='back')]
             ])
         )
-        
+
         # Send notification to all sudo users (admin + owner) with accept/deny options
         sudo_users = Config.OWNER_ID + Config.ADMIN_ID
-        
+
         for sudo_id in sudo_users:
             try:
                 buttons = [
@@ -1006,7 +1006,7 @@ async def contact_admin_callback(bot, query):
                         InlineKeyboardButton("❌ Deny", callback_data=f"deny_chat_{request_id}")
                     ]
                 ]
-                
+
                 await bot.send_message(
                     sudo_id,
                     f"<b>💬 New Contact Request</b>\n\n"
@@ -1019,9 +1019,9 @@ async def contact_admin_callback(bot, query):
                 )
             except Exception as send_err:
                 logger.error(f"Failed to send contact request to admin {sudo_id}: {send_err}")
-        
+
         logger.info(f"Contact request created: {request_id} for user {user_id}")
-        
+
     except Exception as e:
         logger.error(f"Error in contact admin callback for user {user_id}: {e}", exc_info=True)
         await query.answer("❌ An error occurred. Please try again.", show_alert=True)
@@ -1030,7 +1030,7 @@ async def contact_admin_callback(bot, query):
 async def premium_info_callback(bot, query):
     user_id = query.from_user.id
     logger.info(f"Premium info callback from user {user_id}")
-    
+
     try:
         # Notification for plan exploration
         try:
@@ -1044,7 +1044,7 @@ async def premium_info_callback(bot, query):
             )
         except Exception as notif_err:
             logger.error(f"Failed to send plan exploration notification: {notif_err}")
-        
+
         await query.message.edit_text(
             text=Translation.PLAN_INFO_MSG,
             reply_markup=InlineKeyboardMarkup([
@@ -1060,7 +1060,7 @@ async def premium_info_callback(bot, query):
 async def future_updates_callback(bot, query):
     user_id = query.from_user.id
     logger.info(f"Future updates callback from user {user_id}")
-    
+
     try:
         # Professional and exciting future updates text
         future_updates_text = """<b>🚀 ғᴜᴛᴜʀᴇ ᴜᴘᴅᴀᴛᴇs - ᴄᴏᴍɪɴɢ ᴠᴇʀʏ sᴏᴏɴ! 🚀</b>
@@ -1104,19 +1104,19 @@ this update is specially crafted for users who want premium features but can't a
 <b>💖 ᴘʀɪᴏʀɪᴛʏ:</b> making premium features accessible to all
 
 <i>stay connected to our support group for exclusive early access! 🌟</i>"""
-        
+
         # Add exciting buttons with proper spacing
         buttons = [
             [InlineKeyboardButton('🔔 ɢᴇᴛ ɴᴏᴛɪғɪᴇᴅ', callback_data='notify_updates')],
             [InlineKeyboardButton('📱 ᴊᴏɪɴ ᴄᴏᴍᴍᴜɴɪᴛʏ', url=Config.SUPPORT_GROUP)],
             [InlineKeyboardButton('🔙 ʙᴀᴄᴋ ᴛᴏ ᴍᴇɴᴜ', callback_data='back')]
         ]
-        
+
         await query.message.edit_text(
             text=future_updates_text,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
-        
+
         # Notification for future updates interest
         try:
             from utils.notifications import NotificationManager
@@ -1129,7 +1129,7 @@ this update is specially crafted for users who want premium features but can't a
             )
         except Exception as notif_err:
             logger.error(f"Failed to send future updates notification: {notif_err}")
-        
+
     except Exception as e:
         logger.error(f"Error in future updates callback for user {user_id}: {e}", exc_info=True)
         await query.answer("❌ An error occurred. Please try again.", show_alert=True)
@@ -1137,7 +1137,7 @@ this update is specially crafted for users who want premium features but can't a
 @Client.on_callback_query(filters.regex(r'^notify_updates$'))
 async def notify_updates_callback(bot, query):
     user_id = query.from_user.id
-    
+
     try:
         await query.answer(
             "🔔 You'll be notified about exciting updates!\n"
@@ -1153,7 +1153,7 @@ async def notify_updates_callback(bot, query):
 async def updates_menu_callback(bot, query):
     user_id = query.from_user.id
     logger.info(f"Updates menu callback from user {user_id}")
-    
+
     try:
         updates_menu_text = """<b>📄 Developer Updates</b>
 
@@ -1164,19 +1164,19 @@ async def updates_menu_callback(bot, query):
 • <b>Upcoming Update</b> - Preview future features
 
 <i>Select an option to continue:</i>"""
-        
+
         buttons = [
             [InlineKeyboardButton('📊 This Update', callback_data='this_update')],
             [InlineKeyboardButton('🚀 Upcoming Update', callback_data='upcoming_update')],
             [InlineKeyboardButton('🔙 Back to Menu', callback_data='back')]
         ]
-        
+
         await query.message.edit_text(
             text=updates_menu_text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode=enums.ParseMode.HTML
         )
-        
+
     except Exception as e:
         logger.error(f"Error in updates menu callback for user {user_id}: {e}", exc_info=True)
         await query.answer("❌ An error occurred. Please try again.", show_alert=True)
@@ -1185,7 +1185,7 @@ async def updates_menu_callback(bot, query):
 async def this_update_callback(bot, query):
     user_id = query.from_user.id
     logger.info(f"This update callback from user {user_id}")
-    
+
     try:
         this_update_text = """<b>📊 Current Update - FTM Manager & Events System</b>
 
@@ -1218,18 +1218,18 @@ async def this_update_callback(bot, query):
 • Redeem codes with /redeem command
 
 <i>This update enhances your bot experience with powerful event management capabilities!</i>"""
-        
+
         buttons = [
             [InlineKeyboardButton('⚙️ Go to Settings', callback_data='settings#main')],
             [InlineKeyboardButton('🔙 Back to Updates', callback_data='updates_menu')]
         ]
-        
+
         await query.message.edit_text(
             text=this_update_text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode=enums.ParseMode.HTML
         )
-        
+
     except Exception as e:
         logger.error(f"Error in this update callback for user {user_id}: {e}", exc_info=True)
         await query.answer("❌ An error occurred. Please try again.", show_alert=True)
@@ -1238,7 +1238,7 @@ async def this_update_callback(bot, query):
 async def upcoming_update_callback(bot, query):
     user_id = query.from_user.id
     logger.info(f"Upcoming update callback from user {user_id}")
-    
+
     try:
         upcoming_update_text = """<b>🚀 Upcoming Updates - Coming Very Soon!</b>
 
@@ -1281,19 +1281,19 @@ This update is specially crafted for users who want premium features but can't a
 <b>💖 Priority:</b> Making premium features accessible to all
 
 <i>Stay connected to our support group for exclusive early access! 🌟</i>"""
-        
+
         buttons = [
             [InlineKeyboardButton('🔔 Get Notified', callback_data='notify_updates')],
             [InlineKeyboardButton('📱 Join Community', url=Config.SUPPORT_GROUP)],
             [InlineKeyboardButton('🔙 Back to Updates', callback_data='updates_menu')]
         ]
-        
+
         await query.message.edit_text(
             text=upcoming_update_text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode=enums.ParseMode.HTML
         )
-        
+
         # Notification for future updates interest
         try:
             from utils.notifications import NotificationManager
@@ -1306,7 +1306,7 @@ This update is specially crafted for users who want premium features but can't a
             )
         except Exception as notif_err:
             logger.error(f"Failed to send upcoming updates notification: {notif_err}")
-        
+
     except Exception as e:
         logger.error(f"Error in upcoming update callback for user {user_id}: {e}", exc_info=True)
         await query.answer("❌ An error occurred. Please try again.", show_alert=True)
@@ -1315,7 +1315,7 @@ This update is specially crafted for users who want premium features but can't a
 async def my_plan_callback(bot, query):
     user_id = query.from_user.id
     logger.info(f"My plan callback from user {user_id}")
-    
+
     try:
         # Notification for plan exploration
         try:
@@ -1329,12 +1329,12 @@ async def my_plan_callback(bot, query):
             )
         except Exception as notif_err:
             logger.error(f"Failed to send plan exploration notification: {notif_err}")
-        
+
         # Check user's plan status
         premium_info = await db.get_premium_user_details(user_id)
         daily_usage = await db.get_daily_usage(user_id)
         usage_count = daily_usage.get('processes', 0)
-        
+
         if premium_info:
             # User has active premium plan
             plan_type = premium_info.get('plan_type', 'unknown')
@@ -1346,7 +1346,7 @@ async def my_plan_callback(bot, query):
                 days_remaining = max(0, (expires_at_obj - datetime.utcnow()).days)
             else:
                 days_remaining = 0
-            
+
             if plan_type.lower() == 'plus':
                 plan_text = f"""<b>✨ Your Plus Plan</b>
 
@@ -1400,7 +1400,7 @@ async def my_plan_callback(bot, query):
             if trial_status and trial_status.get('used', False):
                 total_processes = 2  # Base + trial
                 trial_text = " (1 base + 1 trial)"
-                
+
             plan_text = f"""<b>🆓 Your Free Plan</b>
 
 <b>📊 Status:</b> Free User
@@ -1419,7 +1419,7 @@ async def my_plan_callback(bot, query):
 
 <b>🔥 Pro Plan:</b> ₹299/15d, ₹549/30d  
 • Unlimited forwarding + FTM Mode + Priority support"""
-        
+
         buttons = []
         if not premium_info:
             # Free user - show upgrade options
@@ -1427,17 +1427,17 @@ async def my_plan_callback(bot, query):
         elif premium_info.get('plan_type', '').lower() == 'plus':
             # Plus user - show Pro upgrade option
             buttons.append([InlineKeyboardButton('🔥 Upgrade to Pro', callback_data='premium#main')])
-        
+
         buttons.extend([
             [InlineKeyboardButton('💬 Contact Admin', callback_data='contact_admin')],
             [InlineKeyboardButton('🔙 Back to Menu', callback_data='back')]
         ])
-        
+
         await query.message.edit_text(
             text=plan_text,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
-        
+
     except Exception as e:
         logger.error(f"Error in my plan callback for user {user_id}: {e}", exc_info=True)
         await query.answer("❌ An error occurred. Please try again.", show_alert=True)
@@ -1448,7 +1448,7 @@ async def info_command(client, message):
     user = message.from_user
     user_id = user.id
     logger.info(f"Info command from user {user_id}")
-    
+
     try:
         # Check force subscribe for non-sudo users
         if not Config.is_sudo_user(user_id):
@@ -1466,13 +1466,13 @@ async def info_command(client, message):
                     reply_markup=InlineKeyboardMarkup(force_sub_buttons),
                     quote=True
                 )
-        
+
         # Get user information
         premium_info = await db.get_premium_user_details(user_id)
         daily_usage = await db.get_daily_usage(user_id)
         monthly_usage = await db.get_monthly_usage(user_id)
         user_data = await db.get_user(user_id)
-        
+
         # Format join date
         from datetime import datetime
         join_date = user_data.get('joined_date', datetime.utcnow()) if user_data else datetime.utcnow()
@@ -1480,7 +1480,7 @@ async def info_command(client, message):
             join_date_str = join_date.strftime('%Y-%m-%d %H:%M:%S')
         else:
             join_date_str = "Unknown"
-            
+
         # Build user info text
         info_text = f"<b>👤 Your Account Information</b>\n\n"
         info_text += f"<b>📋 Basic Details:</b>\n"
@@ -1490,7 +1490,7 @@ async def info_command(client, message):
         info_text += f"\n• <b>Username:</b> @{user.username}" if user.username else "\n• <b>Username:</b> Not set"
         info_text += f"\n• <b>User ID:</b> <code>{user_id}</code>"
         info_text += f"\n• <b>Joined:</b> {join_date_str}\n\n"
-        
+
         # Subscription status
         if premium_info:
             plan_type = premium_info.get('plan_type', 'unknown').upper()
@@ -1501,7 +1501,7 @@ async def info_command(client, message):
             else:
                 expires_at_str = str(expires_at)
                 days_remaining = 0
-                
+
             info_text += f"<b>💎 Subscription Status:</b>\n"
             info_text += f"• <b>Plan:</b> {plan_type} Plan ✅\n"
             info_text += f"• <b>Expires:</b> {expires_at_str}\n"
@@ -1510,12 +1510,12 @@ async def info_command(client, message):
             info_text += f"<b>🆓 Subscription Status:</b>\n"
             info_text += f"• <b>Plan:</b> Free User\n"
             info_text += f"• <b>Limit:</b> 1 process per month\n\n"
-        
+
         # Usage statistics
         info_text += f"<b>📊 Usage Statistics:</b>\n"
         info_text += f"• <b>This Month:</b> {monthly_usage.get('processes', 0)} processes\n"
         info_text += f"• <b>Today:</b> {daily_usage.get('processes', 0)} processes\n"
-        
+
         # Get forwarding limit
         limit = await db.get_forwarding_limit(user_id)
         if limit == -1:
@@ -1524,9 +1524,9 @@ async def info_command(client, message):
             remaining = max(0, limit - monthly_usage.get('processes', 0))
             info_text += f"• <b>Monthly Limit:</b> {limit} processes\n"
             info_text += f"• <b>Remaining:</b> {remaining} processes\n\n"
-        
+
         info_text += f"<b>Use /myplan for subscription details and upgrade options.</b>"
-        
+
         await message.reply_text(
             text=info_text,
             reply_markup=InlineKeyboardMarkup([
@@ -1536,7 +1536,7 @@ async def info_command(client, message):
             ]),
             quote=True
         )
-        
+
     except Exception as e:
         logger.error(f"Error in info command for user {user_id}: {e}", exc_info=True)
         await message.reply_text("❌ An error occurred while fetching your information. Please try again.")
@@ -1546,28 +1546,28 @@ async def info_command(client, message):
 async def users_command(client, message):
     user_id = message.from_user.id
     logger.info(f"Users command from admin {user_id}")
-    
+
     if not Config.is_sudo_user(user_id):
         return await message.reply_text("❌ You don't have permission to use this command!")
-    
+
     try:
         # Get all users from database
         all_users = await db.get_all_users()
-        
+
         if not all_users:
             return await message.reply_text("📋 No registered users found.")
-        
+
         users_text = f"<b>👥 All Registered Users</b>\n\n"
         users_text += f"<b>Total Users:</b> {len(all_users)}\n\n"
-        
+
         premium_count = 0
         free_count = 0
-        
+
         for i, user_info in enumerate(all_users[:50], 1):  # Show first 50 users
             user_id_info = user_info.get('id', 'Unknown')
             user_name = user_info.get('name', 'Unknown')
             joined_date = user_info.get('joined_date', 'Unknown')
-            
+
             # Check if user has premium
             premium_info = await db.get_premium_user_details(user_id_info)
             if premium_info:
@@ -1576,39 +1576,39 @@ async def users_command(client, message):
             else:
                 status = "🆓 FREE"
                 free_count += 1
-            
+
             # Format join date
             if isinstance(joined_date, datetime):
                 join_str = joined_date.strftime('%Y-%m-%d')
             else:
                 join_str = str(joined_date)[:10] if joined_date != 'Unknown' else 'Unknown'
-            
+
             users_text += f"<b>{i}.</b> {user_name}\n"
             users_text += f"    ID: <code>{user_id_info}</code>\n"
             users_text += f"    Status: {status}\n"
             users_text += f"    Joined: {join_str}\n\n"
-        
+
         if len(all_users) > 50:
             users_text += f"<i>... and {len(all_users) - 50} more users</i>\n\n"
-        
+
         users_text += f"<b>📊 Summary:</b>\n"
         users_text += f"• Premium Users: {premium_count}\n"
         users_text += f"• Free Users: {free_count}\n"
         users_text += f"• Total: {len(all_users)} users"
-        
+
         # Send with admin buttons
         buttons = [
-            [InlineKeyboardButton('🔄 Refresh', callback_data='admin_refresh_users')],
+            [InlineKeyboardButton('refresh', callback_data='admin_refresh_users')],
             [InlineKeyboardButton('💎 Premium Users', callback_data='admin_premium_users')],
             [InlineKeyboardButton('🔙 Admin Menu', callback_data='admin_commands')]
         ]
-        
+
         await message.reply_text(
             text=users_text,
             reply_markup=InlineKeyboardMarkup(buttons),
             quote=True
         )
-        
+
     except Exception as e:
         logger.error(f"Error in users command for admin {user_id}: {e}", exc_info=True)
         await message.reply_text("❌ An error occurred while fetching users list. Please try again.")
@@ -1621,9 +1621,9 @@ async def event_command(client, message):
     """Event management command for pseudo-users (admins)"""
     user_id = message.from_user.id
     user_name = message.from_user.first_name
-    
+
     logger.info(f"Event command from user {user_id} ({user_name})")
-    
+
     # Check if user is pseudo-user (admin/owner)
     if not Config.is_sudo_user(user_id):
         await message.reply_text(
@@ -1633,7 +1633,7 @@ async def event_command(client, message):
             parse_mode=enums.ParseMode.HTML
         )
         return
-    
+
     try:
         # Check force subscribe even for admins
         if not Config.is_sudo_user(user_id):
@@ -1652,7 +1652,7 @@ async def event_command(client, message):
                     parse_mode=enums.ParseMode.HTML
                 )
                 return
-        
+
         # Event management main menu
         buttons = [
             [InlineKeyboardButton('🎉 Create New Event', callback_data='event_create#main')],
@@ -1660,7 +1660,7 @@ async def event_command(client, message):
             [InlineKeyboardButton('📈 Event Statistics', callback_data='event_stats#main')],
             [InlineKeyboardButton('🔙 Close', callback_data='delete_message')]
         ]
-        
+
         await message.reply_text(
             text="<b>🎭 Event Management Panel</b>\n\n"
                  "<b>Welcome to the Event Management System!</b>\n\n"
@@ -1673,8 +1673,16 @@ async def event_command(client, message):
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode=enums.ParseMode.HTML
         )
-        
+
     except Exception as e:
         logger.error(f"Error in event command for user {user_id}: {e}", exc_info=True)
         await message.reply_text("❌ An error occurred while loading event management. Please try again.")
 
+
+@Client.on_callback_query(filters.regex(r'^delete_message$'))
+async def delete_message_callback(bot, query):
+    """Delete the message"""
+    try:
+        await query.message.delete()
+    except:
+        await query.answer("Message deleted!", show_alert=False)

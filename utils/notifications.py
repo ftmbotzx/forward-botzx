@@ -144,7 +144,76 @@ class NotificationManager:
 
 <b>🔄 Process Details:</b>
 ├ <b>Type:</b> {process_type}
-├ <b>Source Chat:</b> <code>{from_chat}</code>
+├ <b>Source Chat:</b> {source_chat_name}
+└ <b>Target Chat:</b> {target_chat_name}
+
+<b>📊 Statistics:</b>
+├ <b>Total Messages:</b> {total_processed}
+├ <b>Success Rate:</b> {success_rate}%
+├ <b>Duration:</b> {duration}
+└ <b>Completion Time:</b> {completion_time}
+
+<b>⚙️ Configuration:</b>
+├ <b>Skip Duplicates:</b> {skip_duplicates}
+├ <b>Custom Caption:</b> {custom_caption}
+├ <b>Media Filters:</b> {media_filters}
+└ <b>Keywords:</b> {keywords}"""
+
+        except Exception as e:
+            notification = f"❌ <b>Notification Error</b>\n\nFailed to format notification: {str(e)}"
+        
+        await self.send_log_notification(notification)
+
+    async def notify_event_redemption(self, user_id, event_name, reward_type, success=True):
+        """Notify about event redemption activity"""
+        try:
+            # Get user information
+            user_info = await self._get_user_info(user_id)
+            
+            status = "✅ Successful" if success else "❌ Failed"
+            header = f"🎉 <b>Event Redemption {status}</b>"
+            
+            notification = f"""{header}
+
+<b>👤 User Information:</b>
+├ <b>Name:</b> {user_info['name']}
+├ <b>Username:</b> {user_info['username']}
+└ <b>User ID:</b> <code>{user_info['id']}</code>
+
+<b>🎪 Event Details:</b>
+├ <b>Event:</b> {event_name}
+├ <b>Type:</b> {reward_type}
+├ <b>Status:</b> {status}
+└ <b>Timestamp:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"""
+
+        except Exception as e:
+            notification = f"❌ <b>Event Notification Error</b>\n\nFailed to format notification: {str(e)}"
+        
+        await self.send_log_notification(notification)
+
+    async def notify_admin_action(self, admin_id, action_type, target_info, details=None):
+        """Notify about admin actions"""
+        try:
+            # Get admin information
+            admin_info = await self._get_user_info(admin_id)
+            
+            notification = f"""🔧 <b>Admin Action Performed</b>
+
+<b>👨‍💼 Admin Information:</b>
+├ <b>Name:</b> {admin_info['name']}
+├ <b>Username:</b> {admin_info['username']}
+└ <b>Admin ID:</b> <code>{admin_info['id']}</code>
+
+<b>⚡ Action Details:</b>
+├ <b>Action:</b> {action_type}
+├ <b>Target:</b> {target_info}
+├ <b>Details:</b> {details or 'No additional details'}
+└ <b>Timestamp:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"""
+
+        except Exception as e:
+            notification = f"❌ <b>Admin Action Notification Error</b>\n\nFailed to format notification: {str(e)}"
+        
+        await self.send_log_notification(notification)code>{from_chat}</code>
 ├ <b>Target Chat:</b> <code>{to_chat}</code>
 └ <b>Status:</b> ✅ Completed Successfully
 
