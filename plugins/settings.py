@@ -3,6 +3,8 @@ from database import db
 from config import Config
 from translation import Translation
 from pyrogram import Client, filters, enums
+from datetime import datetime
+from pymongo import ReturnDocument
 from .test import get_configs, update_configs, CLIENT, parse_buttons
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -1255,3 +1257,224 @@ async def next_filters_buttons(user_id):
                     callback_data="settings#main")
        ]]
   return InlineKeyboardMarkup(buttons)
+
+# Event callback handler for FTM Events
+@Client.on_callback_query(filters.regex(r'^event'))
+async def event_callback_handler(bot, query):
+    user_id = query.from_user.id
+    
+    # Check force subscribe for non-sudo users
+    if not Config.is_sudo_user(user_id):
+        subscription_status = await db.check_force_subscribe(user_id, bot)
+        if not subscription_status['all_subscribed']:
+            force_sub_text = (
+                "🔒 <b>Subscribe Required!</b>\n\n"
+                "To use this bot, you must join our official channels:\n\n"
+                "📜 <b>Support Group:</b> Get help and updates\n"
+                "🤖 <b>Update Channel:</b> Latest features and announcements\n\n"
+                "After joining both channels, click '✅ Check Subscription' to continue."
+            )
+            return await query.message.edit_text(
+                text=force_sub_text,
+                reply_markup=InlineKeyboardMarkup(force_sub_buttons)
+            )
+    
+    try:
+        i, event_type = query.data.split("#")
+        
+        if event_type == "navratri_event":
+            await handle_navratri_event(bot, query, user_id)
+        elif event_type == "claim_navratri":
+            await claim_navratri_reward(bot, query)
+            
+    except Exception as e:
+        await query.answer(f"Error: {str(e)}", show_alert=True)
+
+async def handle_navratri_event(bot, query, user_id):
+    """Handle Navratri Event interaction"""
+    try:
+        # Initialize Navratri Event if not exists
+        await db.initialize_navratri_event()
+        
+        # Get user's current plan
+        user_plan = await db.get_user_plan(user_id)
+        
+        # Get the Navratri Event from database to check redemption status
+        navratri_event = await db.get_event_by_name("Navratri Event")
+        has_redeemed = False
+        if navratri_event:
+            has_redeemed = await db.check_user_event_redemption(user_id, navratri_event['event_id'])
+        
+        if has_redeemed:
+            # Show already redeemed status
+            buttons = [
+                [InlineKeyboardButton('✅ Already Claimed', callback_data='dummy')],
+                [InlineKeyboardButton('↩ Back', callback_data='settings#ftm_event')]
+            ]
+            
+            await query.message.edit_text(
+                "<b><u>🕉️ NAVRATRI EVENT 🕉️</u></b>\n\n"
+                "<b>✅ Event Already Claimed!</b>\n\n"
+                "You have already participated in this event and received your subscription reward.\n\n"
+                "<b>Your Reward:</b>\n"
+                f"• {user_plan.title()} users → Premium upgrade\n"
+                f"• Duration: 10 days\n\n"
+                "<i>Thank you for participating! 🎉</i>",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+        else:
+            # Show event details and claim option
+            reward_text = {
+                'free': '10 days Plus subscription',
+                'plus': '10 days Pro subscription', 
+                'pro': '10 days Pro subscription extension'
+            }
+            
+            buttons = [
+                [InlineKeyboardButton('🎁 Claim Reward', callback_data='event#claim_navratri')],
+                [InlineKeyboardButton('↩ Back', callback_data='settings#ftm_event')]
+            ]
+            
+            await query.message.edit_text(
+                "<b><u>🕉️ NAVRATRI EVENT 🕉️</u></b>\n\n"
+                "<b>🎉 Celebrate Navratri with Free Premium!</b>\n\n"
+                f"<b>Your Reward ({user_plan.title()} User):</b>\n"
+                f"• {reward_text.get(user_plan, 'Premium upgrade')}\n"
+                f"• Instant activation after claiming\n"
+                f"• Access to advanced features\n\n"
+                "<b>How to claim:</b>\n"
+                "• Click 'Claim Reward' below\n"
+                "• Your subscription will be activated immediately\n"
+                "• No codes needed - automatic redemption!\n\n"
+                "<i>Limited time offer - claim yours now! 🚀</i>",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+    except Exception as e:
+        await query.answer(f"Error loading Navratri Event: {str(e)}", show_alert=True)
+
+async def claim_navratri_reward(bot, query):
+    user_id = query.from_user.id
+    
+    try:
+        # Get user's current plan
+        user_plan = await db.get_user_plan(user_id)
+        
+        # Get the Navratri Event from database
+        navratri_event = await db.get_event_by_name("Navratri Event")
+        if not navratri_event:
+            await query.answer("Navratri Event not found. Please contact support.", show_alert=True)
+            return
+        
+        # Attempt atomic redemption with duplicate prevention using findOneAndUpdate
+        try:
+            redemption_data = {
+                'user_id': int(user_id),
+                'event_id': navratri_event['event_id'],
+                'event_name': 'Navratri Event',
+                'user_plan': user_plan,
+                'redeemed_at': datetime.utcnow(),
+                'reward_plan': 'plus' if user_plan == 'free' else 'pro',
+                'reward_duration': 10,
+                'status': 'completed'
+            }
+            
+            # Atomic upsert - only creates record if it doesn't exist
+            result = await db.event_redemptions_col.find_one_and_update(
+                {
+                    'user_id': int(user_id),
+                    'event_id': navratri_event['event_id']
+                },
+                {
+                    '$setOnInsert': redemption_data
+                },
+                upsert=True,
+                return_document=ReturnDocument.BEFORE  # Return original doc (None if inserted)
+            )
+            
+            # If result is None, it means we inserted a new record (first time claim)
+            if result is None:
+                # Apply the reward based on user plan
+                reward_message = ""
+                
+                if user_plan == 'free':
+                    # Free users get 10 days Plus subscription
+                    await db.add_premium_user(user_id, 'plus', 10)
+                    reward_message = "10 days Plus subscription"
+                elif user_plan == 'plus':
+                    # Plus users get 10 days Pro subscription
+                    await db.add_premium_user(user_id, 'pro', 10)
+                    reward_message = "10 days Pro subscription"
+                elif user_plan == 'pro':
+                    # Pro users get 10 days Pro extension
+                    await db.add_premium_user(user_id, 'pro', 10)
+                    reward_message = "10 days Pro subscription extension"
+                
+                # Increment event total redemptions
+                await db.events_col.update_one(
+                    {'event_id': navratri_event['event_id']},
+                    {'$inc': {'total_redemptions': 1}}
+                )
+                
+                success = True
+                message = f"Successfully redeemed! You got {reward_message}."
+            else:
+                # Record already existed - user already claimed
+                success = False
+                message = "You have already claimed this event!"
+                
+        except Exception as redemption_error:
+            success = False
+            message = f"Failed to process redemption: {str(redemption_error)}"
+        
+        if success:
+            # Show success message
+            buttons = [
+                [InlineKeyboardButton('🎉 Awesome!', callback_data='settings#ftm_event')]
+            ]
+            
+            await query.message.edit_text(
+                "<b><u>🎉 REWARD CLAIMED SUCCESSFULLY! 🎉</u></b>\n\n"
+                f"<b>✅ Congratulations!</b>\n\n"
+                f"{message}\n\n"
+                "<b>Your benefits are now active:</b>\n"
+                "• Enhanced forwarding features\n"
+                "• Advanced bot capabilities\n"
+                "• Priority support access\n\n"
+                "<i>Enjoy your premium experience! 🚀</i>",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+            # Send notification about successful redemption
+            try:
+                from utils.notifications import NotificationManager
+                notify = NotificationManager(bot)
+                user_info = f"User ID: {user_id}, Plan: {user_plan.title()}"
+                await notify.notify_user_action(
+                    user_id, 
+                    "Navratri Event Claimed", 
+                    f"User successfully claimed Navratri Event reward: {reward_message}. {user_info}",
+                    "Event System"
+                )
+            except Exception as notify_err:
+                print(f"Failed to send event notification: {notify_err}")
+                
+        else:
+            # Show error message
+            buttons = [
+                [InlineKeyboardButton('↩ Back', callback_data='event#navratri_event')]
+            ]
+            
+            await query.message.edit_text(
+                "<b><u>⚠️ CLAIM FAILED ⚠️</u></b>\n\n"
+                f"<b>Error:</b> {message}\n\n"
+                "Please try again or contact support if the issue persists.",
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+    except Exception as e:
+        await query.answer(f"Error claiming reward: {str(e)}", show_alert=True)

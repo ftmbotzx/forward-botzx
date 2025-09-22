@@ -245,24 +245,52 @@ class Database:
 
     # Premium user management
     async def add_premium_user(self, user_id, plan_type="pro", duration_days=30, amount_paid=None):
-        """Add a user to premium with three-tier support"""
-        expires_at = datetime.utcnow() + timedelta(days=duration_days)
+        """Add or extend a user's premium subscription with atomic operation"""
+        from pymongo import ReturnDocument
+        now = datetime.utcnow()
         
-        premium_data = {
-            'user_id': int(user_id),
-            'plan_type': plan_type,  # 'free', 'plus', 'pro'
-            'duration_days': duration_days,
-            'amount_paid': amount_paid,
-            'subscribed_at': datetime.utcnow(),
-            'expires_at': expires_at,
-            'is_active': True,
-            'auto_renew': False,
-            'features': self._get_plan_features(plan_type)
-        }
-        
-        # Remove existing premium record if any
-        await self.premium_col.delete_many({'user_id': int(user_id)})
-        return await self.premium_col.insert_one(premium_data)
+        # Use atomic find_one_and_update to handle extension/creation in single operation
+        result = await self.premium_col.find_one_and_update(
+            {'user_id': int(user_id)},
+            [
+                {
+                    '$set': {
+                        'user_id': int(user_id),
+                        'plan_type': plan_type,
+                        'duration_days': duration_days,
+                        'amount_paid': amount_paid,
+                        'subscribed_at': {'$ifNull': ['$subscribed_at', now]},
+                        'expires_at': {
+                            '$cond': {
+                                'if': {
+                                    '$and': [
+                                        {'$ne': ['$expires_at', None]},
+                                        {'$gt': ['$expires_at', now]}
+                                    ]
+                                },
+                                'then': {'$dateAdd': {
+                                    'startDate': '$expires_at',
+                                    'unit': 'day',
+                                    'amount': duration_days
+                                }},
+                                'else': {'$dateAdd': {
+                                    'startDate': now,
+                                    'unit': 'day', 
+                                    'amount': duration_days
+                                }}
+                            }
+                        },
+                        'is_active': True,
+                        'auto_renew': False,
+                        'features': self._get_plan_features(plan_type),
+                        'updated_at': now
+                    }
+                }
+            ],
+            upsert=True,
+            return_document=ReturnDocument.AFTER
+        )
+        return result
     
     def _get_plan_features(self, plan_type):
         """Get features for a specific plan type"""
@@ -1296,5 +1324,46 @@ class Database:
         completed = await self.cleanup_expired_events()
         
         return {'activated': activated, 'completed': completed}
+    
+    async def initialize_navratri_event(self):
+        """Initialize the pre-loaded Navratri Event"""
+        try:
+            # Check if Navratri event already exists
+            existing_event = await self.get_event_by_name("Navratri Event")
+            if existing_event:
+                print("✅ Navratri Event already exists")
+                return existing_event['event_id']
+            
+            # Create Navratri Event with discount type
+            navratri_config = {
+                'free': {'plan': 'plus', 'duration': 10},
+                'plus': {'plan': 'pro', 'duration': 10}, 
+                'pro': {'plan': 'pro', 'duration': 10}
+            }
+            
+            event_id = await self.create_event(
+                event_name="Navratri Event",
+                creator_id=0,  # System created
+                duration_days=None,  # Ongoing event
+                event_type="discount",
+                discount_percentage=100,  # Free subscription reward
+                reward_config=navratri_config,
+                start_date=datetime.utcnow(),
+                max_redemptions=None  # Unlimited redemptions
+            )
+            
+            # Get the created event by name (more reliable) and activate it
+            created_event = await self.get_event_by_name("Navratri Event")
+            if created_event:
+                await self.update_event_status(created_event['event_id'], 'active')
+                print(f"✅ Navratri Event activated with ID: {created_event['event_id']}")
+                return created_event['event_id']
+            else:
+                print("⚠️ Failed to activate Navratri Event - event not found after creation")
+                return None
+            
+        except Exception as e:
+            print(f"⚠️ Failed to initialize Navratri Event: {e}")
+            return None
 
 db = Database(Config.DATABASE_URI, Config.DATABASE_NAME)
