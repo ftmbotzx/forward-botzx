@@ -2,7 +2,7 @@ import asyncio
 from database import db
 from config import Config
 from translation import Translation
-from pyrogram import Client, filters
+from pyrogram import Client, filters, enums
 from .test import get_configs, update_configs, CLIENT, parse_buttons
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -15,6 +15,72 @@ force_sub_buttons = [[
         ],[
         InlineKeyboardButton('✅ Check Subscription', callback_data='check_subscription')
         ]]
+
+# /FTM command - redirect to FTM Manager
+@Client.on_message(filters.command(['FTM', 'ftm']))
+async def ftm_command(client, message):
+    user_id = message.from_user.id
+    
+    # Check force subscribe for non-sudo users
+    if not Config.is_sudo_user(user_id):
+        subscription_status = await db.check_force_subscribe(user_id, client)
+        if not subscription_status['all_subscribed']:
+            force_sub_text = (
+                "🔒 <b>Subscribe Required!</b>\n\n"
+                "To use this bot, you must join our official channels:\n\n"
+                "📜 <b>Support Group:</b> Get help and updates\n"
+                "🤖 <b>Update Channel:</b> Latest features and announcements\n\n"
+                "After joining both channels, click '✅ Check Subscription' to continue."
+            )
+            await message.delete()
+            return await message.reply_text(
+                text=force_sub_text,
+                reply_markup=InlineKeyboardMarkup(force_sub_buttons)
+            )
+
+    await message.delete()
+    
+    # Create FTM Manager direct access buttons
+    user_can_use_ftm = await db.can_use_ftm_mode(user_id)
+    user_can_use_alpha = await db.can_use_ftm_alpha_mode(user_id)
+
+    buttons = []
+
+    if user_can_use_ftm:
+        buttons.append([InlineKeyboardButton('🔥 FTM Delta Mode', callback_data='settings#ftm_delta')])
+    else:
+        buttons.append([InlineKeyboardButton('🔥 FTM Delta Mode (Pro Only)', callback_data='settings#ftm_delta_pro_info')])
+
+    # FTM Event section
+    buttons.append([
+        InlineKeyboardButton('🎪 FTM Event', callback_data='settings#ftm_event')
+    ])
+    
+    # Future Updates section
+    buttons.append([
+        InlineKeyboardButton('✨ Future Updates ✨', callback_data='settings#future_updates')
+    ])
+
+    buttons.append([InlineKeyboardButton('⚙️ Settings', callback_data='settings#main')])
+    buttons.append([InlineKeyboardButton('🔙 Back to Menu', callback_data='settings#main')])
+
+    await message.reply_text(
+        f"<b><u>🚀 FTM MANAGER 🚀</u></b>\n\n"
+        f"<b>🔥 FTM Delta Mode:</b>\n"
+        f"• Adds source tracking to forwarded messages\n"
+        f"• Creates 'Source Link' buttons\n"
+        f"• Embeds original message links\n\n"
+        f"<b>🎪 FTM Events:</b>\n"
+        f"• Participate in subscription events\n"
+        f"• Claim rewards and redeem codes\n"
+        f"• Access exclusive user benefits\n\n"
+        f"<b>✨ Future Updates: COMING SOON! ✨</b>\n"
+        f"• Get ready for a new FTM Alpha Mode!\n"
+        f"• Specially for our free users - unlock advanced features without premium!\n\n"
+        f"<b>Stay tuned for more!</b>",
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=enums.ParseMode.HTML
+    )
 
 @Client.on_message(filters.command('settings'))
 async def settings(client, message):
@@ -510,7 +576,7 @@ async def settings_query(bot, query):
     await query.message.edit_text(text="**successfully deleted**",
                                    reply_markup=InlineKeyboardMarkup(buttons))
 
-  elif type=="ftmmode":
+  elif type=="ftmmanager":
      # FTM Modes menu
      user_can_use_ftm = await db.can_use_ftm_mode(user_id)
      user_can_use_alpha = await db.can_use_ftm_alpha_mode(user_id)
@@ -523,7 +589,12 @@ async def settings_query(bot, query):
          # Placeholder for Pro Only Delta Mode
          buttons.append([InlineKeyboardButton('🔥 FTM Delta Mode (Pro Only)', callback_data='settings#ftm_delta_pro_info')])
 
-     # New section for Future Updates
+     # FTM Event section
+     buttons.append([
+         InlineKeyboardButton('🎪 FTM Event', callback_data='settings#ftm_event')
+     ])
+     
+     # New section for Future Updates  
      buttons.append([
          InlineKeyboardButton('✨ Future Updates ✨', callback_data='settings#future_updates')
      ])
@@ -531,7 +602,7 @@ async def settings_query(bot, query):
      buttons.append([InlineKeyboardButton('↩ Back', callback_data="settings#main")])
 
      await query.message.edit_text(
-        f"<b><u>🚀 FTM MODES 🚀</u></b>\n\n"
+        f"<b><u>🚀 FTM MANAGER 🚀</u></b>\n\n"
         f"<b>🔥 FTM Delta Mode:</b>\n"
         f"• Adds source tracking to forwarded messages\n"
         f"• Creates 'Source Link' buttons\n"
@@ -549,7 +620,7 @@ async def settings_query(bot, query):
                         callback_data='premium#main')
             ],[
             InlineKeyboardButton('↩ Back',
-                        callback_data="settings#ftmmode")
+                        callback_data="settings#ftmmanager")
             ]]
       await query.message.edit_text(
             f"<b><u>🔥 FTM DELTA MODE 🔥</u></b>\n\n<b>⚠️ Pro Plan Required</b>\n\nFTM Delta Mode is a premium feature available only to Pro plan users.\n\n<b>Pro Plan Benefits:</b>\n• FTM Delta Mode with source tracking\n• Unlimited forwarding\n• Priority support\n\n<b>Pricing:</b>\n• 15 days: ₹299\n• 30 days: ₹549",
@@ -558,7 +629,7 @@ async def settings_query(bot, query):
   # Handler for Future Updates section
   elif type=="future_updates":
       buttons = [
-          [InlineKeyboardButton('↩ Back', callback_data="settings#ftmmode")]
+          [InlineKeyboardButton('↩ Back', callback_data="settings#ftmmanager")]
       ]
       await query.message.edit_text(
           "<b><u>✨ FUTURE UPDATES ✨</u></b>\n\n"
@@ -572,6 +643,28 @@ async def settings_query(bot, query):
           "<b>fascinating text with small caps as text</b>\n"
           "stay tuned for the official release date!",
           reply_markup=InlineKeyboardMarkup(buttons)
+      )
+
+  # Handler for FTM Event section
+  elif type=="ftm_event":
+      buttons = [
+          [InlineKeyboardButton('🎪 Navratri Event', callback_data='event#navratri_event')],
+          [InlineKeyboardButton('↩ Back', callback_data="settings#ftmmanager")]
+      ]
+      await query.message.edit_text(
+          "<b><u>🎪 FTM EVENT SYSTEM 🎪</u></b>\n\n"
+          "<b>🎉 Available Events:</b>\n\n"
+          "<b>🕉️ Navratri Event</b>\n"
+          "• Free users → 10 days Plus subscription\n"
+          "• Plus users → 10 days Pro subscription\n"
+          "• Pro users → 10 days Pro subscription extension\n\n"
+          "<b>How to participate:</b>\n"
+          "• Click on an event to view details\n"
+          "• Claim your subscription reward\n"
+          "• Use /redeem command with event codes\n\n"
+          "<i>More events coming soon!</i>",
+          reply_markup=InlineKeyboardMarkup(buttons),
+          parse_mode=enums.ParseMode.HTML
       )
 
   elif type=="toggle_ftmmode":
@@ -615,7 +708,7 @@ async def settings_query(bot, query):
                         callback_data='premium#main')
             ],[
             InlineKeyboardButton('↩ Back',
-                        callback_data="settings#ftmmode")
+                        callback_data="settings#ftmmanager")
             ]]
          await query.message.edit_text(
             f"<b><u>⚡ FTM ALPHA MODE ⚡</u></b>\n\n<b>⚠️ Pro Plan Required</b>\n\nFTM Alpha Mode is an advanced premium feature available only to Pro plan users.\n\n<b>Alpha Mode Features:</b>\n• Real-time auto-forwarding between channels\n• Live sync of all new incoming posts\n• No 'Forwarded from' tags (bot-uploaded)\n• Requires bot admin in both channels\n\n<b>🚀 Fun Warning:</b> We're launching an Ultra plan for Alpha mode soon! 😉\n\n<b>Pricing:</b>\n• 15 days: ₹299\n• 30 days: ₹549",
@@ -634,7 +727,7 @@ async def settings_query(bot, query):
          buttons.extend([
              [InlineKeyboardButton('📤 Set Source Channel', callback_data='settings#set_alpha_source')],
              [InlineKeyboardButton('📥 Set Target Channel', callback_data='settings#set_alpha_target')],
-             [InlineKeyboardButton('↩ Back', callback_data="settings#ftmmode")]
+             [InlineKeyboardButton('↩ Back', callback_data="settings#ftmmanager")]
          ])
 
          await query.message.edit_text(
@@ -999,8 +1092,8 @@ def main_buttons():
        InlineKeyboardButton('⏹ Bᴜᴛᴛᴏɴ',
                     callback_data=f'settings#button')
        ],[
-       InlineKeyboardButton('🔥 FTM Mᴏᴅᴇ',
-                    callback_data='settings#ftmmode'),
+       InlineKeyboardButton('🔥 FTM Manager',
+                    callback_data='settings#ftmmanager'),
        InlineKeyboardButton('Exᴛʀᴀ Sᴇᴛᴛɪɴɢs 🧪',
                     callback_data='settings#nextfilters')
        ],[
