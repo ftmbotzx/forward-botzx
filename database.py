@@ -25,7 +25,10 @@ class Database:
         self.usage_col = self.db.usage_tracking  # Monthly usage tracking
         self.admin_chat_col = self.db.admin_chats  # Admin chat sessions
         self.contact_requests_col = self.db.contact_requests  # Contact requests collection 
-        self.chat_requests_col = self.db.chat_requests  # Chat requests collection 
+        self.chat_requests_col = self.db.chat_requests  # Chat requests collection
+        self.events_col = self.db.events  # Events collection for FTM events system
+        self.event_redemptions_col = self.db.event_redemptions  # Event redemptions tracking
+        self.event_codes_col = self.db.event_codes  # Individual event codes with usage tracking 
 
     def new_user(self, id, name):
         from datetime import datetime
@@ -693,12 +696,6 @@ class Database:
             'is_active': True
         })
         
-    async def get_active_admin_chat(self, admin_id):
-        """Get active admin chat session for a specific admin"""
-        return await self.admin_chat_col.find_one({
-            'admin_id': int(admin_id),
-            'is_active': True
-        })
     
     # Contact requests methods
     async def create_contact_request(self, user_id):
@@ -833,5 +830,471 @@ class Database:
                 }
             }
         )
+
+    # ===== EVENTS SYSTEM DATABASE OPERATIONS =====
+    
+    async def create_event(self, event_name, creator_id, duration_days=None, event_type="discount", 
+                          discount_percentage=None, reward_config=None, start_date=None, 
+                          redeem_codes=None, max_redemptions=None):
+        """Create a new FTM event with unique event_id generation"""
+        from datetime import datetime, timedelta
+        import secrets
+        import string
+        
+        # Generate unique event_id with retry
+        max_retries = 5
+        for attempt in range(max_retries):
+            event_id = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+            existing = await self.events_col.find_one({'event_id': event_id})
+            if not existing:
+                break
+        else:
+            raise Exception("Failed to generate unique event_id after multiple attempts")
+        
+        event_data = {
+            'event_name': event_name,
+            'creator_id': int(creator_id),
+            'event_type': event_type,  # 'discount' or 'redeem_code'
+            'created_at': datetime.utcnow(),
+            'status': 'draft',  # 'draft', 'active', 'completed', 'cancelled'
+            'duration_days': duration_days,
+            'start_date': start_date or datetime.utcnow(),
+            'end_date': start_date + timedelta(days=duration_days) if start_date and duration_days else None,
+            'max_redemptions': max_redemptions,
+            'total_redemptions': 0,
+            'event_id': event_id
+        }
+        
+        # Add discount-specific fields
+        if event_type == "discount":
+            event_data.update({
+                'discount_percentage': discount_percentage,
+                'reward_config': reward_config or {
+                    'free': {'plan': 'plus', 'duration': 10},
+                    'plus': {'plan': 'pro', 'duration': 10},
+                    'pro': {'plan': 'pro', 'duration': 10}
+                }
+            })
+        
+        # Add redeem code-specific fields
+        elif event_type == "redeem_code":
+            event_data.update({
+                'codes_generated': False,  # Will be set when codes are generated
+                'codes_per_group': 0,  # Number of codes per user group
+                'code_durations': {}  # Will be set when codes are generated
+            })
+        
+        result = await self.events_col.insert_one(event_data)
+        return result.inserted_id
+    
+    async def get_event_by_id(self, event_id):
+        """Get event by event_id"""
+        return await self.events_col.find_one({'event_id': event_id})
+    
+    async def get_event_by_name(self, event_name):
+        """Get event by name"""
+        return await self.events_col.find_one({'event_name': event_name})
+    
+    async def get_all_events(self, status=None):
+        """Get all events, optionally filtered by status"""
+        query = {}
+        if status:
+            query['status'] = status
+        return await self.events_col.find(query).to_list(length=100)
+    
+    async def get_active_events(self):
+        """Get all currently active events"""
+        now = datetime.utcnow()
+        return await self.events_col.find({
+            'status': 'active',
+            'start_date': {'$lte': now},
+            '$or': [
+                {'end_date': {'$gt': now}},
+                {'end_date': None}
+            ]
+        }).to_list(length=50)
+    
+    async def update_event_status(self, event_id, status):
+        """Update event status"""
+        return await self.events_col.update_one(
+            {'event_id': event_id},
+            {'$set': {'status': status, 'updated_at': datetime.utcnow()}}
+        )
+    
+    async def start_event(self, event_id, start_date=None):
+        """Start an event (change status to active)"""
+        update_data = {
+            'status': 'active',
+            'start_date': start_date or datetime.utcnow(),
+            'updated_at': datetime.utcnow()
+        }
+        
+        # Calculate end_date if duration is specified
+        event = await self.get_event_by_id(event_id)
+        if event and event.get('duration_days'):
+            from datetime import timedelta
+            update_data['end_date'] = update_data['start_date'] + timedelta(days=event['duration_days'])
+        
+        return await self.events_col.update_one(
+            {'event_id': event_id},
+            {'$set': update_data}
+        )
+    
+    async def schedule_event(self, event_id, start_date):
+        """Schedule an event to start at a specific date"""
+        from datetime import timedelta
+        
+        event = await self.get_event_by_id(event_id)
+        if not event:
+            return False
+        
+        update_data = {
+            'status': 'scheduled',
+            'start_date': start_date,
+            'updated_at': datetime.utcnow()
+        }
+        
+        # Calculate end_date if duration is specified
+        if event.get('duration_days'):
+            update_data['end_date'] = start_date + timedelta(days=event['duration_days'])
+        
+        return await self.events_col.update_one(
+            {'event_id': event_id},
+            {'$set': update_data}
+        )
+    
+    async def generate_redeem_codes(self, event_id, durations_config, codes_per_group=100):
+        """Generate multiple unique redeem codes for each user group in separate collection"""
+        import secrets
+        import string
+        import hashlib
+        
+        def generate_code():
+            return ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+        
+        codes_created = []
+        
+        for group, duration in durations_config.items():
+            for _ in range(codes_per_group):
+                code = generate_code()
+                code_hash = hashlib.sha256(code.encode()).hexdigest()
+                
+                code_data = {
+                    'event_id': event_id,
+                    'user_group': group,
+                    'code': code,  # Store original for admin view only
+                    'code_hash': code_hash,
+                    'duration': duration,
+                    'claimed_by': None,
+                    'claimed_at': None,
+                    'remaining_uses': 1,
+                    'created_at': datetime.utcnow()
+                }
+                codes_created.append(code_data)
+        
+        # Insert all codes atomically
+        if codes_created:
+            await self.event_codes_col.insert_many(codes_created)
+        
+        # Update event with code generation info
+        return await self.events_col.update_one(
+            {'event_id': event_id},
+            {
+                '$set': {
+                    'code_durations': durations_config,
+                    'codes_generated': True,
+                    'codes_per_group': codes_per_group,
+                    'updated_at': datetime.utcnow()
+                }
+            }
+        )
+    
+    async def validate_redeem_code(self, code, user_plan):
+        """Validate if a redeem code is valid for user's plan using codes collection"""
+        import hashlib
+        
+        code_hash = hashlib.sha256(code.encode()).hexdigest()
+        now = datetime.utcnow()
+        
+        # Find the code in the codes collection
+        code_doc = await self.event_codes_col.find_one({
+            'code_hash': code_hash,
+            'user_group': user_plan,
+            'claimed_by': None,
+            'remaining_uses': {'$gt': 0}
+        })
+        
+        if not code_doc:
+            return None, "Invalid code, already used, or not for your user group"
+        
+        # Verify the associated event is active
+        event = await self.events_col.find_one({
+            'event_id': code_doc['event_id'],
+            'status': 'active',
+            'start_date': {'$lte': now},
+            '$or': [
+                {'end_date': {'$gt': now}},
+                {'end_date': None}
+            ]
+        })
+        
+        if not event:
+            return None, "Event is not active or has expired"
+        
+        return event, "Valid code"
+    
+    async def redeem_event_code(self, user_id, event_id, user_plan, code):
+        """Atomically redeem an event code for a user using separate codes collection"""
+        import hashlib
+        
+        code_hash = hashlib.sha256(code.encode()).hexdigest()
+        now = datetime.utcnow()
+        
+        try:
+            # First verify event is active and user hasn't already redeemed
+            event = await self.events_col.find_one({
+                'event_id': event_id,
+                'status': 'active',
+                'start_date': {'$lte': now},
+                '$or': [{'end_date': {'$gt': now}}, {'end_date': None}]
+            })
+            
+            if not event:
+                return False, "Event not found or not active"
+            
+            # Check max redemptions at event level
+            if event.get('max_redemptions') and event.get('total_redemptions', 0) >= event['max_redemptions']:
+                return False, "Event redemption limit reached"
+            
+            # Atomically claim a code and check for duplicate user redemption
+            code_result = await self.event_codes_col.find_one_and_update(
+                {
+                    'event_id': event_id,
+                    'user_group': user_plan,
+                    'code_hash': code_hash,
+                    'claimed_by': None,
+                    'remaining_uses': {'$gt': 0}
+                },
+                {
+                    '$set': {
+                        'claimed_by': int(user_id),
+                        'claimed_at': now
+                    },
+                    '$inc': {'remaining_uses': -1}
+                },
+                return_document=True
+            )
+            
+            if not code_result:
+                return False, "Invalid code, already used, or not for your user group"
+            
+            # Create redemption record with unique constraint
+            redemption_data = {
+                'user_id': int(user_id),
+                'event_id': event_id,
+                'event_name': event['event_name'],
+                'user_plan': user_plan,
+                'redeemed_code_hash': code_hash,
+                'redeemed_at': now,
+                'reward_duration': code_result['duration'],
+                'status': 'completed'
+            }
+            
+            await self.event_redemptions_col.insert_one(redemption_data)
+            
+            # Increment event total redemptions
+            await self.events_col.update_one(
+                {'event_id': event_id},
+                {'$inc': {'total_redemptions': 1}}
+            )
+            
+            # Apply premium subscription
+            if code_result['duration'] > 0:
+                await self.add_premium_user(
+                    user_id, 
+                    'plus',  # Default to plus for code redemptions
+                    code_result['duration']
+                )
+            
+            return True, f"Successfully redeemed! You got {code_result['duration']} days of premium."
+            
+        except Exception as e:
+            if "duplicate key" in str(e).lower():
+                return False, "You have already redeemed this event"
+            return False, f"Redemption failed: {str(e)}"
+    
+    async def redeem_discount_event(self, user_id, event_id, user_plan):
+        """Atomically redeem a discount event for a user"""
+        now = datetime.utcnow()
+        
+        try:
+            # Atomic operation with all validations in a single query
+            event_update_result = await self.events_col.find_one_and_update(
+                {
+                    'event_id': event_id,
+                    'status': 'active',
+                    'start_date': {'$lte': now},
+                    '$or': [{'end_date': {'$gt': now}}, {'end_date': None}],
+                    f'reward_config.{user_plan}': {'$exists': True},
+                    '$or': [
+                        {'max_redemptions': None},
+                        {'$expr': {'$lt': ['$total_redemptions', '$max_redemptions']}}
+                    ]
+                },
+                {'$inc': {'total_redemptions': 1}},
+                return_document=True
+            )
+            
+            if not event_update_result:
+                return False, "Event not active, no reward for your plan, or redemption limit reached"
+            
+            # Get reward configuration
+            user_reward = event_update_result['reward_config'][user_plan]
+            
+            # Create redemption record with unique constraint
+            redemption_data = {
+                'user_id': int(user_id),
+                'event_id': event_id,
+                'event_name': event_update_result['event_name'],
+                'user_plan': user_plan,
+                'redeemed_at': now,
+                'reward_plan': user_reward['plan'],
+                'reward_duration': user_reward['duration'],
+                'status': 'completed'
+            }
+            
+            await self.event_redemptions_col.insert_one(redemption_data)
+            
+            # Apply the reward (add/extend premium subscription)
+            if user_reward['plan'] in ['plus', 'pro']:
+                await self.add_premium_user(
+                    user_id, 
+                    user_reward['plan'], 
+                    user_reward['duration']
+                )
+            
+            return True, f"Successfully redeemed! You got {user_reward['duration']} days of {user_reward['plan'].title()} plan."
+            
+        except Exception as e:
+            if "duplicate key" in str(e).lower():
+                return False, "You have already redeemed this event"
+            return False, f"Redemption failed: {str(e)}"
+    
+    async def get_user_redemptions(self, user_id):
+        """Get all redemptions for a user"""
+        return await self.event_redemptions_col.find({
+            'user_id': int(user_id)
+        }).to_list(length=50)
+    
+    async def get_event_redemptions(self, event_id):
+        """Get all redemptions for an event"""
+        return await self.event_redemptions_col.find({
+            'event_id': event_id
+        }).to_list(length=100)
+    
+    async def check_user_event_redemption(self, user_id, event_id):
+        """Check if user has already redeemed a specific event"""
+        redemption = await self.event_redemptions_col.find_one({
+            'user_id': int(user_id),
+            'event_id': event_id
+        })
+        return redemption is not None
+    
+    async def get_event_stats(self, event_id):
+        """Get statistics for an event"""
+        event = await self.get_event_by_id(event_id)
+        if not event:
+            return None
+        
+        # Count redemptions by user plan
+        redemptions_by_plan = {}
+        async for redemption in self.event_redemptions_col.find({'event_id': event_id}):
+            plan = redemption.get('user_plan', 'unknown')
+            redemptions_by_plan[plan] = redemptions_by_plan.get(plan, 0) + 1
+        
+        return {
+            'event': event,
+            'total_redemptions': event.get('total_redemptions', 0),
+            'redemptions_by_plan': redemptions_by_plan,
+            'max_redemptions': event.get('max_redemptions'),
+            'redemption_percentage': (
+                (event.get('total_redemptions', 0) / event.get('max_redemptions', 1)) * 100
+                if event.get('max_redemptions') else 0
+            )
+        }
+    
+    async def cleanup_expired_events(self):
+        """Mark expired events as completed"""
+        now = datetime.utcnow()
+        result = await self.events_col.update_many(
+            {
+                'status': 'active',
+                'end_date': {'$lt': now}
+            },
+            {
+                '$set': {
+                    'status': 'completed',
+                    'updated_at': now
+                }
+            }
+        )
+        return result.modified_count
+    
+    async def activate_scheduled_events(self):
+        """Activate events that are scheduled to start"""
+        now = datetime.utcnow()
+        result = await self.events_col.update_many(
+            {
+                'status': 'scheduled',
+                'start_date': {'$lte': now}
+            },
+            {
+                '$set': {
+                    'status': 'active',
+                    'updated_at': now
+                }
+            }
+        )
+        return result.modified_count
+
+    async def initialize_events_indexes(self):
+        """Initialize database indexes for events system"""
+        try:
+            # Events collection indexes
+            await self.events_col.create_index('event_id', unique=True)
+            await self.events_col.create_index([('status', 1), ('start_date', 1), ('end_date', 1)])
+            await self.events_col.create_index('created_at')
+            
+            # Event redemptions collection indexes
+            await self.event_redemptions_col.create_index(
+                [('event_id', 1), ('user_id', 1)], 
+                unique=True
+            )
+            await self.event_redemptions_col.create_index('user_id')
+            await self.event_redemptions_col.create_index('event_id')
+            await self.event_redemptions_col.create_index('redeemed_at')
+            
+            # Event codes collection indexes
+            await self.event_codes_col.create_index('code_hash', unique=True)
+            await self.event_codes_col.create_index([('event_id', 1), ('user_group', 1)])
+            await self.event_codes_col.create_index([('event_id', 1), ('claimed_by', 1)])
+            await self.event_codes_col.create_index('claimed_by')
+            await self.event_codes_col.create_index('remaining_uses')
+            
+            print("✅ Events system database indexes initialized successfully")
+        except Exception as e:
+            print(f"⚠️ Events indexes initialization warning: {e}")
+    
+    async def process_scheduled_events(self):
+        """Process scheduled events and status transitions"""
+        now = datetime.utcnow()
+        
+        # Activate scheduled events that should start now
+        activated = await self.activate_scheduled_events()
+        
+        # Complete expired active events
+        completed = await self.cleanup_expired_events()
+        
+        return {'activated': activated, 'completed': completed}
 
 db = Database(Config.DATABASE_URI, Config.DATABASE_NAME)
