@@ -31,7 +31,7 @@ main_buttons = [[
         InlineKeyboardButton('💁‍♂️ ᴀʙᴏᴜᴛ ', callback_data='about'),
         InlineKeyboardButton('⚙️ sᴇᴛᴛɪɴɢs ⚙️', callback_data='settings#main')
         ],[
-        InlineKeyboardButton('🚀 ғᴜᴛᴜʀᴇ ᴜᴘᴅᴀᴛᴇs 🚀', callback_data='future_updates'),
+        InlineKeyboardButton('📄 Updates', callback_data='updates_menu'),
         InlineKeyboardButton('📞 Contact Admin', callback_data='contact_admin')
         ]]
 
@@ -1146,6 +1146,170 @@ async def notify_updates_callback(bot, query):
         )
     except Exception as e:
         logger.error(f"Error in notify updates callback: {e}")
+
+# =================== Updates Menu Functions ===================
+
+@Client.on_callback_query(filters.regex(r'^updates_menu$'))
+async def updates_menu_callback(bot, query):
+    user_id = query.from_user.id
+    logger.info(f"Updates menu callback from user {user_id}")
+    
+    try:
+        updates_menu_text = """<b>📄 Developer Updates</b>
+
+<b>Stay informed about latest changes and upcoming features!</b>
+
+<b>📋 Available Options:</b>
+• <b>This Update</b> - View current update changes
+• <b>Upcoming Update</b> - Preview future features
+
+<i>Select an option to continue:</i>"""
+        
+        buttons = [
+            [InlineKeyboardButton('📊 This Update', callback_data='this_update')],
+            [InlineKeyboardButton('🚀 Upcoming Update', callback_data='upcoming_update')],
+            [InlineKeyboardButton('🔙 Back to Menu', callback_data='back')]
+        ]
+        
+        await query.message.edit_text(
+            text=updates_menu_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in updates menu callback for user {user_id}: {e}", exc_info=True)
+        await query.answer("❌ An error occurred. Please try again.", show_alert=True)
+
+@Client.on_callback_query(filters.regex(r'^this_update$'))
+async def this_update_callback(bot, query):
+    user_id = query.from_user.id
+    logger.info(f"This update callback from user {user_id}")
+    
+    try:
+        this_update_text = """<b>📊 Current Update - FTM Manager & Events System</b>
+
+<b>🎉 What's New in This Update:</b>
+
+<b>🔧 FTM Manager Updates:</b>
+• Renamed "FTM Mode" → "FTM Manager"
+• Added new "FTM Event" feature in FTM Manager
+• Enhanced navigation and user experience
+
+<b>🎪 Event System Features:</b>
+• Pre-loaded <b>Navratri Event</b> with subscription rewards
+• Admin event creation system with /event command
+• Discount events and Redeem code system
+• Group-based redemption (Free/Plus/Pro users)
+
+<b>🎁 Subscription Rewards:</b>
+• Free users → 10 days Plus subscription
+• Plus users → 10 days Pro subscription  
+• Pro users → 10 days Pro subscription extension
+
+<b>⚙️ Admin Features:</b>
+• Event scheduling and management
+• Code generation with redemption tracking
+• Comprehensive logging system
+
+<b>🔗 Access Methods:</b>
+• Use /FTM command or Settings → FTM Manager
+• View events in FTM Manager → FTM Event
+• Redeem codes with /redeem command
+
+<i>This update enhances your bot experience with powerful event management capabilities!</i>"""
+        
+        buttons = [
+            [InlineKeyboardButton('⚙️ Go to Settings', callback_data='settings#main')],
+            [InlineKeyboardButton('🔙 Back to Updates', callback_data='updates_menu')]
+        ]
+        
+        await query.message.edit_text(
+            text=this_update_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in this update callback for user {user_id}: {e}", exc_info=True)
+        await query.answer("❌ An error occurred. Please try again.", show_alert=True)
+
+@Client.on_callback_query(filters.regex(r'^upcoming_update$'))
+async def upcoming_update_callback(bot, query):
+    user_id = query.from_user.id
+    logger.info(f"Upcoming update callback from user {user_id}")
+    
+    try:
+        upcoming_update_text = """<b>🚀 Upcoming Updates - Coming Very Soon!</b>
+
+<b>📅 Next Major Update</b>
+<i>Specially designed for our beloved free users! 💝</i>
+
+<b>🎯 What's Coming:</b>
+• Enhanced user experience for everyone
+• Improved performance optimizations
+• New features accessible to all users
+• Revolutionary forwarding capabilities
+
+<b>⚡ FTM Alpha Mode V2.0</b>
+<blockquote expandable>🔥 <b>Revolutionary real-time auto-forwarding system</b>
+
+<b>🌟 Amazing Features:</b>
+• Lightning-fast real-time message sync
+• Zero-delay forwarding between channels
+• Smart duplicate detection & filtering  
+• Advanced message customization
+• Intelligent rate limiting system
+• Cross-platform compatibility
+• Enhanced security protocols
+
+<b>🎁 Secret Bonus:</b>
+<blockquote>This update includes special tier access for free users! Selected free users will get limited alpha mode access through our community program. Stay tuned for announcements! 🤫✨</blockquote>
+
+<b>💡 Technical Highlights:</b>
+• Powered by next-gen pyrogram v2 architecture
+• Supports 50+ simultaneous channel connections
+• AI-powered content filtering
+• Blockchain-inspired message verification
+• Quantum-resistant encryption protocols</blockquote>
+
+<b>📢 Exciting News!</b>
+This update is specially crafted for users who want premium features but can't afford subscriptions. We believe everyone deserves access to powerful tools! 
+
+<b>🗓️ Expected Release:</b> Very Soon™️
+<b>🎯 Target Audience:</b> Free users & community members
+<b>💖 Priority:</b> Making premium features accessible to all
+
+<i>Stay connected to our support group for exclusive early access! 🌟</i>"""
+        
+        buttons = [
+            [InlineKeyboardButton('🔔 Get Notified', callback_data='notify_updates')],
+            [InlineKeyboardButton('📱 Join Community', url=Config.SUPPORT_GROUP)],
+            [InlineKeyboardButton('🔙 Back to Updates', callback_data='updates_menu')]
+        ]
+        
+        await query.message.edit_text(
+            text=upcoming_update_text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+        # Notification for future updates interest
+        try:
+            from utils.notifications import NotificationManager
+            notification_manager = NotificationManager(bot)
+            await notification_manager.notify_plan_exploration(
+                user_id=user_id, 
+                plan_type="Future Updates", 
+                action="viewed upcoming features", 
+                source="upcoming updates menu"
+            )
+        except Exception as notif_err:
+            logger.error(f"Failed to send upcoming updates notification: {notif_err}")
+        
+    except Exception as e:
+        logger.error(f"Error in upcoming update callback for user {user_id}: {e}", exc_info=True)
+        await query.answer("❌ An error occurred. Please try again.", show_alert=True)
 
 @Client.on_callback_query(filters.regex(r'^my_plan$'))
 async def my_plan_callback(bot, query):
