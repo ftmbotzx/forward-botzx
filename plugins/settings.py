@@ -650,22 +650,81 @@ async def settings_query(bot, query):
 
   # Handler for FTM Event section
   elif type=="ftm_event":
-      buttons = [
-          [InlineKeyboardButton('🎪 Navratri Event', callback_data='event#navratri_event')],
-          [InlineKeyboardButton('↩ Back', callback_data="settings#ftmmanager")]
-      ]
+      # Get all active events dynamically
+      try:
+          all_events = await db.get_all_events()
+          active_events = [e for e in all_events if e.get('status') == 'active']
+          
+          event_text = "<b><u>🎪 FTM EVENT SYSTEM 🎪</u></b>\n\n"
+          
+          if active_events:
+              event_text += "<b>🎉 Active Events:</b>\n\n"
+              buttons = []
+              
+              for event in active_events[:5]:  # Show up to 5 events
+                  event_name = event.get('event_name', 'Unknown Event')
+                  event_type = event.get('event_type', 'unknown')
+                  event_id = event.get('event_id', '')
+                  
+                  # Add event info to text
+                  event_text += f"<b>🎯 {event_name}</b>\n"
+                  
+                  if event_type == 'discount':
+                      reward_config = event.get('reward_config', {})
+                      if 'free' in reward_config:
+                          free_plan = reward_config['free'].get('plan', 'plus')
+                          free_duration = reward_config['free'].get('duration', 10)
+                          event_text += f"• Free users → {free_duration} days {free_plan.title()} subscription\n"
+                      if 'plus' in reward_config:
+                          plus_plan = reward_config['plus'].get('plan', 'pro')
+                          plus_duration = reward_config['plus'].get('duration', 10)
+                          event_text += f"• Plus users → {plus_duration} days {plus_plan.title()} subscription\n"
+                      if 'pro' in reward_config:
+                          pro_duration = reward_config['pro'].get('duration', 10)
+                          event_text += f"• Pro users → {pro_duration} days Pro extension\n"
+                          
+                  elif event_type == 'redeem_code':
+                      event_text += "• Use redeem codes to get premium subscriptions\n"
+                      event_text += "• Codes available for all user types\n"
+                  
+                  event_text += "\n"
+                  
+                  # Add button for event
+                  buttons.append([InlineKeyboardButton(f'🎪 {event_name}', callback_data=f'user_event#{event_id}')])
+              
+              if len(active_events) > 5:
+                  event_text += f"<i>... and {len(active_events) - 5} more events</i>\n\n"
+              
+              # Add view all events button if there are many
+              if len(active_events) > 1:
+                  buttons.append([InlineKeyboardButton('📋 View All Events', callback_data='settings#user_events_all')])
+                  
+          else:
+              event_text += "<b>📭 No Active Events</b>\n\n"
+              event_text += "There are currently no active events.\n"
+              event_text += "Check back later for exciting rewards and giveaways!\n\n"
+              buttons = []
+          
+          event_text += "<b>📋 How to participate:</b>\n"
+          event_text += "• Click on an event to view details\n"
+          event_text += "• Claim your subscription rewards\n"
+          event_text += "• Use <code>/redeem CODE</code> with event codes\n"
+          event_text += "• Join our channels for event announcements\n\n"
+          event_text += "<i>Stay tuned for more exciting events! 🎊</i>"
+          
+          # Add navigation buttons
+          buttons.append([InlineKeyboardButton('🎁 Redeem Code', callback_data='redeem_help')])
+          buttons.append([InlineKeyboardButton('↩ Back', callback_data="settings#ftmmanager")])
+          
+      except Exception as e:
+          logger.error(f"Error loading events: {e}")
+          event_text = "<b><u>🎪 FTM EVENT SYSTEM 🎪</u></b>\n\n"
+          event_text += "❌ <b>Error loading events</b>\n\n"
+          event_text += "Please try again later or contact support."
+          buttons = [[InlineKeyboardButton('↩ Back', callback_data="settings#ftmmanager")]]
+      
       await query.message.edit_text(
-          "<b><u>🎪 FTM EVENT SYSTEM 🎪</u></b>\n\n"
-          "<b>🎉 Available Events:</b>\n\n"
-          "<b>🕉️ Navratri Event</b>\n"
-          "• Free users → 10 days Plus subscription\n"
-          "• Plus users → 10 days Pro subscription\n"
-          "• Pro users → 10 days Pro subscription extension\n\n"
-          "<b>How to participate:</b>\n"
-          "• Click on an event to view details\n"
-          "• Claim your subscription reward\n"
-          "• Use /redeem command with event codes\n\n"
-          "<i>More events coming soon!</i>",
+          event_text,
           reply_markup=InlineKeyboardMarkup(buttons),
           parse_mode=enums.ParseMode.HTML
       )
@@ -699,6 +758,82 @@ async def settings_query(bot, query):
          await query.message.edit_text(
             f"<b><u>🔥 FTM MODE 🔥</u></b>\n\n<b>Status:</b> {status}\n\n<b>When FTM Mode is enabled:</b>\n• Each forwarded message will have a 'Source Link' button\n• Original message link will be added to caption\n• Target message link will be embedded in caption\n\n<b>Note:</b> This mode adds source tracking to all forwarded messages.",
             reply_markup=InlineKeyboardMarkup(buttons))
+
+  # Handler for redeem help
+  elif type=="redeem_help":
+      buttons = [
+          [InlineKeyboardButton('🎪 View Events', callback_data='settings#ftm_event')],
+          [InlineKeyboardButton('↩ Back', callback_data="settings#ftm_event")]
+      ]
+      await query.message.edit_text(
+          "<b><u>🎁 REDEEM CODE HELP 🎁</u></b>\n\n"
+          "<b>How to redeem codes:</b>\n"
+          "• Type: <code>/redeem YOUR_CODE</code>\n"
+          "• Example: <code>/redeem ABC123</code>\n\n"
+          "<b>📋 Important Notes:</b>\n"
+          "• Codes are case-sensitive\n"
+          "• Each code can only be used once\n"
+          "• Codes are event-specific\n"
+          "• Check active events for available codes\n\n"
+          "<b>🎯 Rewards by plan:</b>\n"
+          "• <b>Free users:</b> Get Plus subscription\n"
+          "• <b>Plus users:</b> Get Pro subscription upgrade\n"
+          "• <b>Pro users:</b> Get subscription extension\n\n"
+          "<i>Need help? Contact our support group!</i>",
+          reply_markup=InlineKeyboardMarkup(buttons),
+          parse_mode=enums.ParseMode.HTML
+      )
+
+  # Handler for viewing all user events
+  elif type=="user_events_all":
+      try:
+          all_events = await db.get_all_events()
+          active_events = [e for e in all_events if e.get('status') == 'active']
+          
+          event_text = "<b><u>📋 ALL ACTIVE EVENTS 📋</u></b>\n\n"
+          
+          if active_events:
+              event_text += f"<b>Found {len(active_events)} active events:</b>\n\n"
+              
+              for i, event in enumerate(active_events, 1):
+                  event_name = event.get('event_name', 'Unknown Event')
+                  event_type = event.get('event_type', 'unknown')
+                  created_at = event.get('created_at', '')
+                  
+                  event_text += f"<b>{i}. {event_name}</b>\n"
+                  event_text += f"• Type: {event_type.title()} Event\n"
+                  
+                  if event_type == 'discount':
+                      event_text += "• Automatic subscription rewards\n"
+                  elif event_type == 'redeem_code':
+                      event_text += "• Use redeem codes for rewards\n"
+                      
+                  if created_at:
+                      try:
+                          if hasattr(created_at, 'strftime'):
+                              event_text += f"• Created: {created_at.strftime('%Y-%m-%d')}\n"
+                      except:
+                          pass
+                  event_text += "\n"
+          else:
+              event_text += "📭 No active events found.\n\n"
+          
+          event_text += "<b>💡 Tip:</b> Use <code>/redeem CODE</code> to redeem event codes!"
+          
+          buttons = [
+              [InlineKeyboardButton('🔙 Back to Events', callback_data='settings#ftm_event')]
+          ]
+          
+      except Exception as e:
+          logger.error(f"Error loading all events: {e}")
+          event_text = "<b><u>📋 ALL ACTIVE EVENTS 📋</u></b>\n\n❌ Error loading events.\nPlease try again later."
+          buttons = [[InlineKeyboardButton('🔙 Back', callback_data='settings#ftm_event')]]
+      
+      await query.message.edit_text(
+          event_text,
+          reply_markup=InlineKeyboardMarkup(buttons),
+          parse_mode=enums.ParseMode.HTML
+      )
 
   elif type=="ftm_alpha":
      # FTM Alpha Mode settings (new real-time forwarding)
