@@ -1366,4 +1366,47 @@ class Database:
             print(f"⚠️ Failed to initialize Navratri Event: {e}")
             return None
 
+    # User State Management
+    async def set_user_state(self, user_id, state_data):
+        """Set user state for multi-step operations"""
+        try:
+            return await self.col.update_one(
+                {'id': int(user_id)},
+                {
+                    '$set': {
+                        'current_state': state_data,
+                        'state_updated_at': datetime.utcnow()
+                    }
+                },
+                upsert=True
+            )
+        except Exception as e:
+            print(f"Error setting user state for {user_id}: {e}")
+            return None
+    
+    async def get_user_state(self, user_id):
+        """Get user's current state"""
+        try:
+            user = await self.col.find_one({'id': int(user_id)})
+            return user.get('current_state') if user else None
+        except Exception as e:
+            print(f"Error getting user state for {user_id}: {e}")
+            return None
+    
+    async def clear_user_state(self, user_id):
+        """Clear user's current state"""
+        try:
+            return await self.col.update_one(
+                {'id': int(user_id)},
+                {
+                    '$unset': {
+                        'current_state': '',
+                        'state_updated_at': ''
+                    }
+                }
+            )
+        except Exception as e:
+            print(f"Error clearing user state for {user_id}: {e}")
+            return None
+
 db = Database(Config.DATABASE_URI, Config.DATABASE_NAME)

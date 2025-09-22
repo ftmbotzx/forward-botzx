@@ -5,6 +5,7 @@ from translation import Translation
 from pyrogram import Client, filters, enums
 from datetime import datetime
 from pymongo import ReturnDocument
+import re
 from .test import get_configs, update_configs, CLIENT, parse_buttons
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -1258,8 +1259,8 @@ async def next_filters_buttons(user_id):
        ]]
   return InlineKeyboardMarkup(buttons)
 
-# Event callback handler for FTM Events
-@Client.on_callback_query(filters.regex(r'^event'))
+# Event callback handler for FTM Events (specific patterns only)
+@Client.on_callback_query(filters.regex(r'^event#(navratri_event|claim_navratri)$'))
 async def event_callback_handler(bot, query):
     user_id = query.from_user.id
     
@@ -1289,6 +1290,287 @@ async def event_callback_handler(bot, query):
             
     except Exception as e:
         await query.answer(f"Error: {str(e)}", show_alert=True)
+
+# Event creation callback handler for admins
+@Client.on_callback_query(filters.regex(r'^event_create'))
+async def event_create_callback_handler(bot, query):
+    user_id = query.from_user.id
+    
+    # Check admin permissions first
+    if not Config.is_sudo_user(user_id):
+        await query.answer("❌ You don't have permission to create events!", show_alert=True)
+        return
+    
+    try:
+        callback_data = query.data
+        
+        if callback_data == "event_create#main":
+            await event_create_main(bot, query)
+        elif callback_data == "event_create#name_input":
+            await event_create_name_input(bot, query)
+        elif callback_data.startswith("event_create#duration_"):
+            # Handle duration selection
+            duration_data = callback_data.split("_")[-1]
+            
+            # Get current event data from user state
+            user_state = await db.get_user_state(user_id)
+            if not user_state or 'event_data' not in user_state:
+                await query.answer("❌ Event creation session expired. Please start again.", show_alert=True)
+                return
+                
+            event_data = user_state['event_data']
+            
+            if duration_data == "custom":
+                # Handle custom duration input
+                await query.message.edit_text(
+                    f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+                    "<b>Custom Duration</b>\n\n"
+                    "Please enter the duration in days (1-365):\n\n"
+                    "<i>Type a number and send it as a message:</i>",
+                    parse_mode=enums.ParseMode.HTML
+                )
+                
+                # Update user state for custom duration input
+                await db.set_user_state(user_id, {
+                    'action': 'event_create_duration_custom',
+                    'step': 'waiting_duration',
+                    'event_data': event_data
+                })
+            else:
+                # Handle predefined duration
+                try:
+                    duration_days = int(duration_data)
+                    event_data['duration_days'] = duration_days
+                    
+                    # Update user state and proceed to reward type
+                    await db.set_user_state(user_id, {
+                        'action': 'event_create_reward_type',
+                        'step': 'selecting_reward',
+                        'event_data': event_data
+                    })
+                    
+                    await event_create_reward_type(bot, query, event_data)
+                except ValueError:
+                    await query.answer("❌ Invalid duration format!", show_alert=True)
+                    
+        elif callback_data == "event_create#reward_discount":
+            # Handle discount event selection
+            user_state = await db.get_user_state(user_id)
+            if not user_state or 'event_data' not in user_state:
+                await query.answer("❌ Event creation session expired. Please start again.", show_alert=True)
+                return
+                
+            event_data = user_state['event_data']
+            event_data['reward_type'] = 'discount'
+            
+            # Proceed to discount configuration
+            await query.message.edit_text(
+                f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+                f"<b>Duration:</b> {event_data['duration_days']} days\n"
+                f"<b>Type:</b> Discount Event\n\n"
+                "<b>Step 4: Discount Percentage</b>\n\n"
+                "Enter the discount percentage (1-100):\n\n"
+                "<i>Type a number and send it as a message:</i>",
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+            # Update user state for discount input
+            await db.set_user_state(user_id, {
+                'action': 'event_create_discount',
+                'step': 'waiting_discount',
+                'event_data': event_data
+            })
+            
+        elif callback_data == "event_create#reward_redeem":
+            # Handle redeem code event selection
+            user_state = await db.get_user_state(user_id)
+            if not user_state or 'event_data' not in user_state:
+                await query.answer("❌ Event creation session expired. Please start again.", show_alert=True)
+                return
+                
+            event_data = user_state['event_data']
+            event_data['reward_type'] = 'redeem_code'
+            
+            # Proceed to redeem code configuration
+            await query.message.edit_text(
+                f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+                f"<b>Duration:</b> {event_data['duration_days']} days\n"
+                f"<b>Type:</b> Redeem Code Event\n\n"
+                "<b>Step 4: Code Configuration</b>\n\n"
+                "This will create unique redemption codes for each user group.\n"
+                "Users will redeem codes for premium subscriptions.\n\n"
+                "<i>Coming in the next step: Redeem Code Flow implementation</i>",
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+        elif callback_data == "event_create#back_duration":
+            # Go back to duration selection
+            user_state = await db.get_user_state(user_id)
+            if user_state and 'event_data' in user_state:
+                await event_create_duration(bot, query, user_state['event_data'])
+            else:
+                await event_create_main(bot, query)
+                
+    except Exception as e:
+        await query.answer(f"Error in event creation: {str(e)}", show_alert=True)
+
+# Text message handler for event creation
+@Client.on_message(filters.private & filters.text & ~filters.command([]))
+async def handle_event_creation_text(bot, message):
+    """Handle text input during event creation process"""
+    user_id = message.from_user.id
+    
+    # Check if user has a current state
+    user_state = await db.get_user_state(user_id)
+    if not user_state:
+        return  # No active state, ignore
+    
+    try:
+        action = user_state.get('action')
+        
+        if action == 'event_create_name':
+            # Handle event name input
+            event_name = message.text.strip()
+            
+            # Validate event name
+            if len(event_name) < 3:
+                await message.reply_text("❌ Event name must be at least 3 characters long. Please try again.")
+                return
+            
+            if len(event_name) > 50:
+                await message.reply_text("❌ Event name must be under 50 characters. Please try again.")
+                return
+            
+            # Check for invalid characters
+            if not re.match(r'^[a-zA-Z0-9\s\-_]+$', event_name):
+                await message.reply_text("❌ Event name can only contain letters, numbers, spaces, hyphens, and underscores. Please try again.")
+                return
+            
+            # Check if event name already exists
+            existing_event = await db.get_event_by_name(event_name)
+            if existing_event:
+                await message.reply_text(f"❌ An event with the name '{event_name}' already exists. Please choose a different name.")
+                return
+            
+            # Save event name and proceed to duration selection
+            event_data = {'name': event_name}
+            await db.set_user_state(user_id, {
+                'action': 'event_create_duration',
+                'step': 'selecting_duration',
+                'event_data': event_data
+            })
+            
+            # Create a dummy query object to call duration function
+            class DummyQuery:
+                def __init__(self, message):
+                    self.message = message
+                    self.from_user = message.from_user
+            
+            dummy_query = DummyQuery(message)
+            await event_create_duration(bot, dummy_query, event_data)
+            
+        elif action == 'event_create_duration_custom':
+            # Handle custom duration input
+            try:
+                duration_days = int(message.text.strip())
+                
+                if duration_days < 1 or duration_days > 365:
+                    await message.reply_text("❌ Duration must be between 1 and 365 days. Please try again.")
+                    return
+                
+                event_data = user_state.get('event_data', {})
+                event_data['duration_days'] = duration_days
+                
+                # Update user state and proceed to reward type
+                await db.set_user_state(user_id, {
+                    'action': 'event_create_reward_type',
+                    'step': 'selecting_reward',
+                    'event_data': event_data
+                })
+                
+                # Create a dummy query object to call reward type function
+                class DummyQuery:
+                    def __init__(self, message):
+                        self.message = message
+                        self.from_user = message.from_user
+                
+                dummy_query = DummyQuery(message)
+                await event_create_reward_type(bot, dummy_query, event_data)
+                
+            except ValueError:
+                await message.reply_text("❌ Please enter a valid number for duration. Try again.")
+                return
+                
+        elif action == 'event_create_discount':
+            # Handle discount percentage input
+            try:
+                discount_percentage = int(message.text.strip())
+                
+                if discount_percentage < 1 or discount_percentage > 100:
+                    await message.reply_text("❌ Discount percentage must be between 1 and 100. Please try again.")
+                    return
+                
+                event_data = user_state.get('event_data', {})
+                event_data['discount_percentage'] = discount_percentage
+                
+                # Clear user state - event creation will be completed
+                await db.clear_user_state(user_id)
+                
+                # Show event creation summary and completion
+                await message.reply_text(
+                    f"<b>✅ Event Created Successfully!</b>\n\n"
+                    f"<b>Event Name:</b> {event_data['name']}\n"
+                    f"<b>Duration:</b> {event_data['duration_days']} days\n"
+                    f"<b>Type:</b> Discount Event\n"
+                    f"<b>Discount:</b> {discount_percentage}%\n\n"
+                    "<i>Note: Event creation is implemented in the interface. Full database integration will be completed in Task 6.</i>\n\n"
+                    "Use /event to manage your events!",
+                    parse_mode=enums.ParseMode.HTML
+                )
+                
+            except ValueError:
+                await message.reply_text("❌ Please enter a valid number for discount percentage. Try again.")
+                return
+                
+    except Exception as e:
+        await message.reply_text(f"❌ An error occurred: {str(e)}")
+        await db.clear_user_state(user_id)
+
+# Event panel callback handler
+@Client.on_callback_query(filters.regex(r'^event_panel'))
+async def event_panel_callback(bot, query):
+    """Handle event panel callback - redirect to /event command interface"""
+    user_id = query.from_user.id
+    
+    # Check admin permissions
+    if not Config.is_sudo_user(user_id):
+        await query.answer("❌ You don't have permission to access the event panel!", show_alert=True)
+        return
+    
+    try:
+        # Show the same interface as /event command
+        buttons = [
+            [InlineKeyboardButton('🎉 Create New Event', callback_data='event_create#main')],
+            [InlineKeyboardButton('📊 Manage Events', callback_data='event_manage#main')],
+            [InlineKeyboardButton('📈 Event Statistics', callback_data='event_stats#main')],
+            [InlineKeyboardButton('🔙 Close', callback_data='delete_message')]
+        ]
+        
+        await query.message.edit_text(
+            text="<b>🎭 Event Management Panel</b>\n\n"
+                 "<b>Welcome to the Event Management System!</b>\n\n"
+                 "Here you can:\n"
+                 "• Create new events with custom rewards\n"
+                 "• Manage existing events (start/stop/edit)\n"
+                 "• View event statistics and redemptions\n"
+                 "• Monitor user participation\n\n"
+                 "<i>Select an option below to get started:</i>",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+    except Exception as e:
+        await query.answer(f"Error loading event panel: {str(e)}", show_alert=True)
 
 async def handle_navratri_event(bot, query, user_id):
     """Handle Navratri Event interaction"""
@@ -1478,3 +1760,162 @@ async def claim_navratri_reward(bot, query):
             
     except Exception as e:
         await query.answer(f"Error claiming reward: {str(e)}", show_alert=True)
+
+
+#===================Event Creation Flow===================#
+
+async def event_create_main(bot, query):
+    """Start event creation flow - ask for event name"""
+    user_id = query.from_user.id
+    
+    # Check admin permissions
+    if not Config.is_sudo_user(user_id):
+        await query.answer("❌ You don't have permission to create events!", show_alert=True)
+        return
+    
+    try:
+        buttons = [
+            [InlineKeyboardButton('📋 Enter Event Name', callback_data='event_create#name_input')],
+            [InlineKeyboardButton('🔙 Back to Event Panel', callback_data='event_panel')]
+        ]
+        
+        await query.message.edit_text(
+            "<b>🎉 Create New Event</b>\n\n"
+            "<b>Step 1: Event Name</b>\n\n"
+            "Give your event a catchy and descriptive name!\n\n"
+            "<b>Examples:</b>\n"
+            "• Summer Sale 2024\n"
+            "• Diwali Special Event\n"
+            "• Premium Weekend\n"
+            "• New Year Celebration\n\n"
+            "<b>Guidelines:</b>\n"
+            "• Keep it short and memorable\n"
+            "• Avoid special characters\n"
+            "• Make it descriptive\n\n"
+            "<i>Click below to enter the event name:</i>",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+    except Exception as e:
+        await query.answer(f"Error starting event creation: {str(e)}", show_alert=True)
+
+async def event_create_name_input(bot, query):
+    """Handle event name input"""
+    user_id = query.from_user.id
+    
+    # Check admin permissions
+    if not Config.is_sudo_user(user_id):
+        await query.answer("❌ You don't have permission to create events!", show_alert=True)
+        return
+    
+    try:
+        # Trigger text input mode for event name
+        await query.message.edit_text(
+            "<b>📝 Enter Event Name</b>\n\n"
+            "Please type the name for your new event.\n\n"
+            "<b>Guidelines:</b>\n"
+            "• Use clear, descriptive names\n"
+            "• Keep it under 50 characters\n"
+            "• Avoid special symbols except spaces and dashes\n\n"
+            "<b>Examples:</b>\n"
+            "• Christmas Sale Event\n"
+            "• Premium Upgrade Week\n"
+            "• Festival Celebration\n\n"
+            "<i>Type your event name and send it as a message:</i>",
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+        # Store user state for text input
+        await db.set_user_state(user_id, {
+            'action': 'event_create_name',
+            'step': 'waiting_name',
+            'data': {}
+        })
+        
+    except Exception as e:
+        await query.answer(f"Error setting up name input: {str(e)}", show_alert=True)
+
+async def event_create_duration(bot, query, event_data):
+    """Show duration selection options"""
+    user_id = query.from_user.id
+    
+    # Check admin permissions
+    if not Config.is_sudo_user(user_id):
+        await query.answer("❌ You don't have permission to create events!", show_alert=True)
+        return
+    
+    try:
+        buttons = [
+            [
+                InlineKeyboardButton('1 Day', callback_data=f'event_create#duration_1'),
+                InlineKeyboardButton('3 Days', callback_data=f'event_create#duration_3')
+            ],
+            [
+                InlineKeyboardButton('1 Week', callback_data=f'event_create#duration_7'),
+                InlineKeyboardButton('2 Weeks', callback_data=f'event_create#duration_14')
+            ],
+            [
+                InlineKeyboardButton('1 Month', callback_data=f'event_create#duration_30'),
+                InlineKeyboardButton('Custom', callback_data=f'event_create#duration_custom')
+            ],
+            [InlineKeyboardButton('🔙 Back', callback_data='event_create#main')]
+        ]
+        
+        await query.message.edit_text(
+            f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+            "<b>Step 2: Event Duration</b>\n\n"
+            "How long should this event run?\n\n"
+            "<b>Duration Options:</b>\n"
+            "• <b>1 Day:</b> Quick flash event\n"
+            "• <b>3 Days:</b> Short promotion\n"
+            "• <b>1 Week:</b> Standard event length\n"
+            "• <b>2 Weeks:</b> Extended event\n"
+            "• <b>1 Month:</b> Long-term event\n"
+            "• <b>Custom:</b> Set your own duration\n\n"
+            "<i>Select the duration for your event:</i>",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+    except Exception as e:
+        await query.answer(f"Error showing duration options: {str(e)}", show_alert=True)
+
+async def event_create_reward_type(bot, query, event_data):
+    """Show reward type selection options"""
+    user_id = query.from_user.id
+    
+    # Check admin permissions
+    if not Config.is_sudo_user(user_id):
+        await query.answer("❌ You don't have permission to create events!", show_alert=True)
+        return
+    
+    try:
+        buttons = [
+            [InlineKeyboardButton('💰 Discount Event', callback_data='event_create#reward_discount')],
+            [InlineKeyboardButton('🎫 Redeem Code Event', callback_data='event_create#reward_redeem')],
+            [InlineKeyboardButton('🔙 Back', callback_data='event_create#back_duration')]
+        ]
+        
+        duration_text = f"{event_data['duration_days']} day{'s' if event_data['duration_days'] != 1 else ''}"
+        
+        await query.message.edit_text(
+            f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+            f"<b>Duration:</b> {duration_text}\n\n"
+            "<b>Step 3: Reward Type</b>\n\n"
+            "Choose the type of reward for this event:\n\n"
+            "<b>💰 Discount Event:</b>\n"
+            "• Users get percentage discount on premium plans\n"
+            "• Automatic application during purchase\n"
+            "• Great for sales and promotions\n\n"
+            "<b>🎫 Redeem Code Event:</b>\n"
+            "• Generate unique codes for different user groups\n"
+            "• Users redeem codes for premium subscriptions\n"
+            "• Perfect for giveaways and exclusive rewards\n\n"
+            "<i>Select the reward type for your event:</i>",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+    except Exception as e:
+        await query.answer(f"Error showing reward type options: {str(e)}", show_alert=True)

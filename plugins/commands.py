@@ -1613,3 +1613,68 @@ async def users_command(client, message):
         logger.error(f"Error in users command for admin {user_id}: {e}", exc_info=True)
         await message.reply_text("❌ An error occurred while fetching users list. Please try again.")
 
+
+#===================Event Management Command===================#
+
+@Client.on_message(filters.private & filters.command(['event']))
+async def event_command(client, message):
+    """Event management command for pseudo-users (admins)"""
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
+    
+    logger.info(f"Event command from user {user_id} ({user_name})")
+    
+    # Check if user is pseudo-user (admin/owner)
+    if not Config.is_sudo_user(user_id):
+        await message.reply_text(
+            "❌ <b>Access Denied</b>\n\n"
+            "This command is only available for administrators.\n"
+            "If you're looking for events, use /start and go to FTM Manager → FTM Event.",
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
+    
+    try:
+        # Check force subscribe even for admins
+        if not Config.is_sudo_user(user_id):
+            subscription_status = await db.check_force_subscribe(user_id, client)
+            if not subscription_status['all_subscribed']:
+                force_sub_text = (
+                    "🔒 <b>Subscribe Required!</b>\n\n"
+                    "To use this bot, you must join our official channels:\n\n"
+                    f"• Support Group\n"
+                    f"• Update Channel\n\n"
+                    "Click the buttons below to join and then check your subscription."
+                )
+                await message.reply_text(
+                    text=force_sub_text,
+                    reply_markup=InlineKeyboardMarkup(force_sub_buttons),
+                    parse_mode=enums.ParseMode.HTML
+                )
+                return
+        
+        # Event management main menu
+        buttons = [
+            [InlineKeyboardButton('🎉 Create New Event', callback_data='event_create#main')],
+            [InlineKeyboardButton('📊 Manage Events', callback_data='event_manage#main')],
+            [InlineKeyboardButton('📈 Event Statistics', callback_data='event_stats#main')],
+            [InlineKeyboardButton('🔙 Close', callback_data='delete_message')]
+        ]
+        
+        await message.reply_text(
+            text="<b>🎭 Event Management Panel</b>\n\n"
+                 "<b>Welcome to the Event Management System!</b>\n\n"
+                 "Here you can:\n"
+                 "• Create new events with custom rewards\n"
+                 "• Manage existing events (start/stop/edit)\n"
+                 "• View event statistics and redemptions\n"
+                 "• Monitor user participation\n\n"
+                 "<i>Select an option below to get started:</i>",
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in event command for user {user_id}: {e}", exc_info=True)
+        await message.reply_text("❌ An error occurred while loading event management. Please try again.")
+
