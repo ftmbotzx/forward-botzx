@@ -555,8 +555,8 @@ async def speed_test_command(client, message):
     user_id = message.from_user.id
     logger.info(f"Speedtest command from user {user_id}")
 
-    # Check if user is owner or admin
-    if user_id not in Config.OWNER_ID:
+    # Check if user is sudo user (owner or admin)
+    if not Config.is_sudo_user(user_id):
         return await message.reply_text("❌ This command is only available for administrators.")
 
     status_msg = await message.reply_text("🔄 <b>Running Network Speed Test...</b>\n⏳ Please wait, this may take a moment.")
@@ -627,8 +627,8 @@ async def system_info_command(client, message):
     user_id = message.from_user.id
     logger.info(f"System info command from user {user_id}")
 
-    # Check if user is owner or admin
-    if user_id not in Config.OWNER_ID:
+    # Check if user is sudo user (owner or admin)  
+    if not Config.is_sudo_user(user_id):
         return await message.reply_text("❌ This command is only available for administrators.")
 
     status_msg = await message.reply_text("🔄 <b>Gathering system information...</b>")
