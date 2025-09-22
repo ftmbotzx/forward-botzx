@@ -155,20 +155,21 @@ async def event_type_callback(bot, query):
         duration_text = f"{event_data['duration_days']} days" if event_data.get('duration_days') else "Unlimited"
         
         if event_type == "discount":
-            # For discount events, proceed to final creation
+            # For discount events, proceed to discount configuration
             await query.message.edit_text(
                 text=f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
                      f"<b>Duration:</b> {duration_text}\n"
                      f"<b>Type:</b> Discount Event\n\n"
-                     "<b>Step 4: Confirm Creation</b>\n\n"
-                     "<b>Discount Event Details:</b>\n"
-                     "• Free subscription rewards for all user groups\n"
-                     "• Free → 10 days Plus plan\n"
-                     "• Plus → 10 days Pro plan\n"
-                     "• Pro → 10 days Pro plan extension\n\n"
-                     "<b>Ready to create this event?</b>",
+                     "<b>Step 4: Discount Configuration</b>\n\n"
+                     "Choose discount type:\n\n"
+                     "<b>📅 Subscription Rewards:</b> Free plan upgrades\n"
+                     "<b>💰 Percentage Discount:</b> % off premium plans\n"
+                     "<b>🎯 Custom Rewards:</b> Flexible reward configuration\n\n"
+                     "<i>Select discount type to continue:</i>",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton('✅ Create Event', callback_data='event_confirm#discount')],
+                    [InlineKeyboardButton('📅 Subscription Rewards', callback_data='discount_config#subscription')],
+                    [InlineKeyboardButton('💰 Percentage Discount', callback_data='discount_config#percentage')],
+                    [InlineKeyboardButton('🎯 Custom Rewards', callback_data='discount_config#custom')],
                     [InlineKeyboardButton('❌ Cancel', callback_data='event_manage#main')]
                 ]),
                 parse_mode=enums.ParseMode.HTML
@@ -544,6 +545,159 @@ async def handle_event_creation_messages(client, message):
                 parse_mode=enums.ParseMode.HTML
             )
             
+        elif action == 'discount_percentage_input' and step == 'waiting_percentage':
+            # Handle percentage input for discount events
+            try:
+                percentage = int(message.text.strip())
+                if percentage < 1 or percentage > 90:
+                    return await message.reply_text("❌ Percentage must be between 1-90. Please try again.")
+                
+                # Store percentage and proceed to date selection
+                event_data = user_state['event_data']
+                event_data['discount_percentage'] = percentage
+                
+                # Show date selection for percentage discount
+                await message.reply_text(
+                    text=f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+                         f"<b>💰 {percentage}% Discount Event</b>\n\n"
+                         "<b>📅 Event Scheduling:</b>\n"
+                         "Choose when this event should start:",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton('🚀 Start Now', callback_data='date_confirm#now')],
+                        [InlineKeyboardButton('📆 Schedule Date', callback_data='date_input#start_date')],
+                        [InlineKeyboardButton('❌ Cancel', callback_data='event_manage#main')]
+                    ]),
+                    parse_mode=enums.ParseMode.HTML
+                )
+                
+                # Update state
+                await db.set_user_state(user_id, {
+                    'action': 'discount_date_selection',
+                    'step': 'waiting_date_choice',
+                    'event_data': event_data
+                })
+                
+            except ValueError:
+                await message.reply_text("❌ Please enter a valid number between 1-90.")
+                
+        elif action == 'discount_custom_input' and step == 'waiting_custom_config':
+            # Handle custom reward configuration input
+            try:
+                config_text = message.text.strip()
+                # Parse format: plan:days,plan:days,plan:days
+                
+                custom_rewards = {}
+                parts = config_text.split(',')
+                
+                for part in parts:
+                    if ':' not in part:
+                        return await message.reply_text("❌ Invalid format! Use: plan:days,plan:days,plan:days\nExample: plus:15,pro:20,pro:25")
+                    
+                    plan, days_str = part.strip().split(':', 1)
+                    plan = plan.strip().lower()
+                    
+                    if plan not in ['free', 'plus', 'pro']:
+                        return await message.reply_text(f"❌ Invalid plan '{plan}'. Use: free, plus, or pro")
+                    
+                    try:
+                        days = int(days_str.strip())
+                        if days < 1 or days > 365:
+                            return await message.reply_text("❌ Days must be between 1-365.")
+                        
+                        # Map to target plan (what they get)
+                        if plan == 'free':
+                            target_plan = 'plus'
+                        elif plan == 'plus':
+                            target_plan = 'pro'  
+                        else:
+                            target_plan = 'pro'
+                            
+                        custom_rewards[plan] = {'plan': target_plan, 'duration': days}
+                    except ValueError:
+                        return await message.reply_text(f"❌ Invalid days value for {plan}. Must be a number.")
+                
+                if not custom_rewards:
+                    return await message.reply_text("❌ No valid rewards configured. Please try again.")
+                
+                # Store custom config and proceed to date selection
+                event_data = user_state['event_data']
+                event_data['reward_config'] = custom_rewards
+                
+                # Show formatted configuration
+                config_display = ""
+                for user_type, reward in custom_rewards.items():
+                    config_display += f"• {user_type.title()} → {reward['duration']} days {reward['plan'].title()}\n"
+                
+                await message.reply_text(
+                    text=f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+                         f"<b>🎯 Custom Rewards Configuration:</b>\n{config_display}\n"
+                         "<b>📅 Event Scheduling:</b>\n"
+                         "Choose when this event should start:",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton('🚀 Start Now', callback_data='date_confirm#now')],
+                        [InlineKeyboardButton('📆 Schedule Date', callback_data='date_input#start_date')],
+                        [InlineKeyboardButton('❌ Cancel', callback_data='event_manage#main')]
+                    ]),
+                    parse_mode=enums.ParseMode.HTML
+                )
+                
+                # Update state
+                await db.set_user_state(user_id, {
+                    'action': 'discount_date_selection',
+                    'step': 'waiting_date_choice',
+                    'event_data': event_data
+                })
+                
+            except Exception as e:
+                await message.reply_text(f"❌ Error parsing configuration: {str(e)}")
+                
+        elif action == 'schedule_date_input' and step == 'waiting_start_date':
+            # Handle date input for scheduled events
+            try:
+                date_text = message.text.strip()
+                
+                # Parse date format: YYYY-MM-DD HH:MM
+                try:
+                    scheduled_date = datetime.strptime(date_text, '%Y-%m-%d %H:%M')
+                    
+                    # Validate date is in the future
+                    if scheduled_date <= datetime.utcnow():
+                        return await message.reply_text("❌ Scheduled date must be in the future. Please try again.")
+                    
+                    # Store scheduled date
+                    event_data = user_state['event_data']
+                    event_data['scheduled_start_date'] = scheduled_date
+                    
+                    # Show confirmation
+                    await message.reply_text(
+                        text=f"<b>📅 Event Scheduled Successfully!</b>\n\n"
+                             f"<b>Event:</b> {event_data['name']}\n"
+                             f"<b>Start Date:</b> {scheduled_date.strftime('%Y-%m-%d %H:%M UTC')}\n\n"
+                             "<b>Ready to create this scheduled event?</b>",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton('✅ Create Scheduled Event', callback_data='date_confirm#scheduled')],
+                            [InlineKeyboardButton('📝 Change Date', callback_data='date_input#start_date')],
+                            [InlineKeyboardButton('❌ Cancel', callback_data='event_manage#main')]
+                        ]),
+                        parse_mode=enums.ParseMode.HTML
+                    )
+                    
+                    # Update state
+                    await db.set_user_state(user_id, {
+                        'action': 'schedule_confirmation',
+                        'step': 'waiting_confirmation',
+                        'event_data': event_data
+                    })
+                    
+                except ValueError:
+                    await message.reply_text(
+                        "❌ Invalid date format! Please use: YYYY-MM-DD HH:MM\n"
+                        "Example: 2024-12-25 10:00"
+                    )
+                    
+            except Exception as e:
+                await message.reply_text(f"❌ Error processing date: {str(e)}")
+                
         elif action == 'event_create_codes' and step == 'waiting_code_config':
             # Handle redeem code configuration
             try:
@@ -634,3 +788,248 @@ async def handle_event_creation_messages(client, message):
     except Exception as e:
         logger.error(f"Error handling event creation message: {e}", exc_info=True)
         await db.clear_user_state(user_id)
+
+
+#==================Enhanced Discount Configuration Handlers==================#
+
+@Client.on_callback_query(filters.regex(r'^discount_config#'))
+async def discount_config_callback(bot, query):
+    """Handle discount configuration selection"""
+    user_id = query.from_user.id
+    config_type = query.data.split('#')[1]
+    
+    if not Config.is_sudo_user(user_id):
+        return await query.answer("❌ You don't have permission!", show_alert=True)
+    
+    try:
+        user_state = await db.get_user_state(user_id)
+        if not user_state or 'event_data' not in user_state:
+            await query.answer("❌ Event creation session expired. Please start again.", show_alert=True)
+            return
+        
+        event_data = user_state['event_data']
+        event_data['discount_config_type'] = config_type
+        
+        if config_type == "subscription":
+            # Traditional subscription rewards with date selection
+            await query.message.edit_text(
+                text=f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+                     "<b>📅 Subscription Rewards Configuration</b>\n\n"
+                     "<b>Default Rewards:</b>\n"
+                     "• Free Users → 10 days Plus plan\n"
+                     "• Plus Users → 10 days Pro plan\n"
+                     "• Pro Users → 10 days Pro extension\n\n"
+                     "<b>📅 Event Scheduling:</b>\n"
+                     "Choose when this event should start:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('🚀 Start Now', callback_data='date_confirm#now')],
+                    [InlineKeyboardButton('📆 Schedule Date', callback_data='date_input#start_date')],
+                    [InlineKeyboardButton('🔙 Back', callback_data='event_create#type')],
+                    [InlineKeyboardButton('❌ Cancel', callback_data='event_manage#main')]
+                ]),
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+        elif config_type == "percentage":
+            # Percentage-based discounts
+            await query.message.edit_text(
+                text=f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+                     "<b>💰 Percentage Discount Configuration</b>\n\n"
+                     "Set discount percentage for premium plans:\n\n"
+                     "<b>Enter discount percentage (1-90):</b>\n"
+                     "<b>Example:</b> 50 (for 50% off)\n\n"
+                     "<i>Type the percentage and send as message:</i>",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('🔙 Back', callback_data='event_create#type')],
+                    [InlineKeyboardButton('❌ Cancel', callback_data='event_manage#main')]
+                ]),
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+            # Set state for percentage input
+            await db.set_user_state(user_id, {
+                'action': 'discount_percentage_input',
+                'step': 'waiting_percentage',
+                'event_data': event_data
+            })
+            
+        elif config_type == "custom":
+            # Custom reward configuration
+            await query.message.edit_text(
+                text=f"<b>🎉 Create Event: {event_data['name']}</b>\n\n"
+                     "<b>🎯 Custom Rewards Configuration</b>\n\n"
+                     "Configure custom rewards for each user group:\n\n"
+                     "<b>Format:</b> free_plan:days,plus_plan:days,pro_plan:days\n"
+                     "<b>Plans:</b> free, plus, pro\n"
+                     "<b>Example:</b> plus:15,pro:20,pro:25\n\n"
+                     "<i>Type the configuration and send as message:</i>",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('📋 Example Config', callback_data='discount_example#custom')],
+                    [InlineKeyboardButton('🔙 Back', callback_data='event_create#type')],
+                    [InlineKeyboardButton('❌ Cancel', callback_data='event_manage#main')]
+                ]),
+                parse_mode=enums.ParseMode.HTML
+            )
+            
+            # Set state for custom configuration
+            await db.set_user_state(user_id, {
+                'action': 'discount_custom_input',
+                'step': 'waiting_custom_config',
+                'event_data': event_data
+            })
+            
+    except Exception as e:
+        logger.error(f"Error in discount config callback: {e}", exc_info=True)
+        await query.answer(f"❌ Error: {str(e)}", show_alert=True)
+
+
+@Client.on_callback_query(filters.regex(r'^date_input#'))
+async def date_input_callback(bot, query):
+    """Handle date input request"""
+    user_id = query.from_user.id
+    
+    if not Config.is_sudo_user(user_id):
+        return await query.answer("❌ You don't have permission!", show_alert=True)
+    
+    try:
+        user_state = await db.get_user_state(user_id)
+        if not user_state or 'event_data' not in user_state:
+            await query.answer("❌ Event creation session expired. Please start again.", show_alert=True)
+            return
+        
+        await query.message.edit_text(
+            text=f"<b>📅 Schedule Event Start Date</b>\n\n"
+                 "Enter the start date and time for this event:\n\n"
+                 "<b>Format:</b> YYYY-MM-DD HH:MM\n"
+                 "<b>Example:</b> 2024-12-25 10:00\n"
+                 "<b>Time Zone:</b> UTC\n\n"
+                 "<i>Type the date and time, then send as message:</i>",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton('📋 Date Examples', callback_data='date_examples#help')],
+                [InlineKeyboardButton('🔙 Back', callback_data='discount_config#subscription')],
+                [InlineKeyboardButton('❌ Cancel', callback_data='event_manage#main')]
+            ]),
+            parse_mode=enums.ParseMode.HTML
+        )
+        
+        # Set state for date input
+        await db.set_user_state(user_id, {
+            'action': 'schedule_date_input',
+            'step': 'waiting_start_date',
+            'event_data': user_state['event_data']
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in date input callback: {e}", exc_info=True)
+        await query.answer(f"❌ Error: {str(e)}", show_alert=True)
+
+
+@Client.on_callback_query(filters.regex(r'^date_confirm#'))
+async def date_confirm_callback(bot, query):
+    """Handle event confirmation with proper discount type handling"""
+    user_id = query.from_user.id
+    confirm_action = query.data.split('#')[1]
+    
+    if not Config.is_sudo_user(user_id):
+        return await query.answer("❌ You don't have permission!", show_alert=True)
+    
+    try:
+        user_state = await db.get_user_state(user_id)
+        if not user_state or 'event_data' not in user_state:
+            await query.answer("❌ Event creation session expired. Please start again.", show_alert=True)
+            return
+        
+        event_data = user_state['event_data']
+        discount_type = event_data.get('discount_config_type', 'subscription')
+        
+        # Set start date based on action
+        if confirm_action == 'now':
+            event_data['start_date'] = datetime.utcnow()
+            status = 'active'
+        else:
+            # Use scheduled date if available, otherwise now
+            event_data['start_date'] = event_data.get('scheduled_start_date', datetime.utcnow())
+            status = 'scheduled' if event_data.get('scheduled_start_date') else 'active'
+        
+        # Set reward config based on discount type
+        if discount_type == 'subscription':
+            event_data['reward_config'] = {
+                'free': {'plan': 'plus', 'duration': 10},
+                'plus': {'plan': 'pro', 'duration': 10},
+                'pro': {'plan': 'pro', 'duration': 10}
+            }
+        elif discount_type == 'percentage':
+            # For percentage discount, create special reward config
+            percentage = event_data.get('discount_percentage', 0)
+            event_data['reward_config'] = {
+                'discount_type': 'percentage',
+                'discount_value': percentage
+            }
+        elif discount_type == 'custom':
+            # Custom rewards already stored in reward_config
+            pass
+        
+        # Create the enhanced discount event
+        event_id = await db.create_event(
+            event_name=event_data['name'],
+            creator_id=user_id,
+            duration_days=event_data.get('duration_days'),
+            event_type="discount",
+            reward_config=event_data.get('reward_config', {}),
+            start_date=event_data['start_date'],
+            discount_percentage=event_data.get('discount_percentage', 0)
+        )
+        
+        # Get created event and set status
+        created_event = await db.get_event_by_name(event_data['name'])
+        if created_event:
+            await db.update_event_status(created_event['event_id'], status)
+            
+            # Send admin notification
+            admin_name = query.from_user.first_name
+            try:
+                from utils.notifications import NotificationManager
+                notify = NotificationManager(bot)
+                await notify.notify_admin_action(
+                    user_id, 
+                    "Enhanced Event Created", 
+                    f"{discount_type.title()} Discount Event: {event_data['name']}", 
+                    f"Creator: {admin_name}, Status: {status.title()}"
+                )
+            except Exception:
+                pass
+            
+            # Show appropriate success message
+            if status == 'active':
+                status_text = "Active Now"
+                features_text = "Users can participate immediately!"
+            else:
+                start_date_str = event_data['start_date'].strftime('%Y-%m-%d %H:%M UTC')
+                status_text = f"Scheduled for {start_date_str}"
+                features_text = "Event will activate automatically at the scheduled time!"
+            
+            await query.message.edit_text(
+                text=f"<b>✅ Enhanced Discount Event Created!</b>\n\n"
+                     f"<b>Event Name:</b> {event_data['name']}\n"
+                     f"<b>Event ID:</b> <code>{created_event['event_id']}</code>\n"
+                     f"<b>Type:</b> {discount_type.title()} Discount Event\n"
+                     f"<b>Status:</b> {status_text}\n"
+                     f"<b>Duration:</b> {event_data.get('duration_days', 'Unlimited')} days\n\n"
+                     f"<b>🎉 {features_text}</b>\n\n"
+                     "<b>New Features Implemented:</b>\n"
+                     "• ✅ Enhanced discount configuration\n"
+                     "• ✅ Date selection & scheduling\n"  
+                     "• ✅ Multiple discount types\n"
+                     "• ✅ Improved admin workflow",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton('📊 Event Stats', callback_data=f'event_stats#{created_event["event_id"]}')],
+                    [InlineKeyboardButton('🔙 Event Manager', callback_data='event_manage#main')]
+                ]),
+                parse_mode=enums.ParseMode.HTML
+            )
+        
+        await db.clear_user_state(user_id)
+        
+    except Exception as e:
+        logger.error(f"Error confirming enhanced event: {e}", exc_info=True)
+        await query.answer(f"❌ Error creating event: {str(e)}", show_alert=True)
