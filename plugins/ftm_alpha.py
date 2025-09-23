@@ -52,4 +52,4 @@ async def initialize_alpha_mode(bot):
     print("✅ FTM Alpha Mode initialized successfully!")
 
 # Export the initialization function
-__all__ = ['initialize_alpha_mode', 'ftm_alpha_handler', 'load_alpha_configs']
+__all__ = ['initialize_alpha_mode', 'ftm_alpha_handler_v2', 'load_alpha_configs']
