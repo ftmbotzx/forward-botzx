@@ -62,8 +62,8 @@ async def start(client, message):
     logger.info(f"Start command from user {user.id} ({user.first_name})")
 
     try:
-        # Always reply first to acknowledge the command
-        await message.reply_text("🔄 Processing your request...", quote=True)
+        # Send initial processing message
+        processing_msg = await message.reply_text("🔄 Processing your request...", quote=True)
         
         if not await db.is_user_exist(user.id):
             await db.add_user(user.id, user.first_name)
@@ -96,10 +96,12 @@ async def start(client, message):
                         "🤖 <b>Update Channel:</b> Latest features and announcements\n\n"
                         "After joining both channels, click '✅ Check Subscription' to continue."
                     )
-                    return await message.edit_text(
+                    await processing_msg.edit_text(
                         text=force_sub_text,
-                        reply_markup=InlineKeyboardMarkup(force_sub_buttons)
+                        reply_markup=InlineKeyboardMarkup(force_sub_buttons),
+                        parse_mode=enums.ParseMode.HTML
                     )
+                    return
             except Exception as sub_err:
                 logger.error(f"Force subscribe check error: {sub_err}")
                 # Continue with normal flow if force subscribe fails
@@ -115,9 +117,10 @@ async def start(client, message):
             logger.error(f"Sticker error: {sticker_err}")
 
         text = Translation.START_TXT.format(user.mention)
-        await message.edit_text(
+        await processing_msg.edit_text(
             text=text,
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML
         )
         logger.info(f"Start message sent to user {user.id}")
         
