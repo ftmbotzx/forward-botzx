@@ -21,4 +21,4 @@ COPY . .
 EXPOSE 10000
 
 # Run bot + webserver
-CMD ["python", "n.py"]
+CMD ["python", "maintenance.py"]
