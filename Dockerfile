@@ -9,10 +9,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Copy requirements.txt first for caching
-COPY ftm.txt .
+COPY requirements.txt .
 
 # Install dependencies
-RUN pip install --no-cache-dir -r ftm.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
