@@ -10,17 +10,7 @@ from datetime import datetime
 from database import db, mongodb_version
 from config import Config, temp
 from platform import python_version
-try:
-    from translation import Translation
-except ImportError:
-    # Fallback if Translation module has issues
-    class Translation:
-        START_TXT = "🎉 <b>Welcome {}!</b>\n\nThis is FTM Developer Bot. Use the buttons below to get started."
-        HELP_TXT = "📋 <b>Help</b>\n\nThis bot helps you forward messages between Telegram channels."
-        HOW_USE_TXT = "🛠️ <b>How to Use</b>\n\n1. Click Settings to configure\n2. Add your bot or user session\n3. Set source and target channels\n4. Start forwarding!"
-        ABOUT_TXT = "ℹ️ <b>About</b>\n\nFTM Developer Bot v2.0\nBuilt with Pyrogram"
-        STATUS_TXT = "📊 <b>Bot Statistics</b>\n\n<b>Total Users:</b> {}\n<b>Total Bots:</b> {}\n<b>Active Forwards:</b> {}\n<b>Total Channels:</b> {}"
-        PLAN_INFO_MSG = "💎 <b>Premium Plans</b>\n\nUpgrade to get unlimited forwarding and premium features!"
+from translation import Translation
 from utils.notifications import NotificationManager
 from pyrogram import filters, enums, __version__ as pyrogram_version
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaDocument
