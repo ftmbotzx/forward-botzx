@@ -55,8 +55,8 @@ force_sub_buttons = [[
 
 
 #===================Start Function===================#
-@Client.on_message(filters.private & filters.command('start'))
-async def start(client, message):
+@Client.on_message(filters.command("start"))
+async def startsss(client, message):
     user = message.from_user
     logger.info(f"Start command from user {user.id} ({user.first_name})")
 
